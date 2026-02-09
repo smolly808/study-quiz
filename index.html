@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="ja">
 <head>
@@ -8,20 +9,26 @@
     body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 16px; line-height: 1.5; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; margin: 12px 0; }
     label { display:block; margin: 8px 0 4px; font-weight: 600; }
-    select, input[type="number"], button { width: 100%; font-size: 16px; padding: 10px; border-radius: 10px; border: 1px solid #ccc; }
+    select, input[type="number"], textarea, button { width: 100%; font-size: 16px; padding: 10px; border-radius: 10px; border: 1px solid #ccc; }
+    textarea { resize: vertical; }
     button { border: none; background: #111; color: #fff; margin-top: 10px; }
     button.secondary { background: #666; }
     .row { display:flex; gap:10px; }
     .row > * { flex:1; }
     .muted { color:#666; font-size: 13px; }
+    .pill { display:inline-block; padding: 2px 8px; border:1px solid #ddd; border-radius: 999px; font-size: 12px; margin-right:6px; }
+    .choices button { background:#f3f3f3; color:#111; border:1px solid #ddd; margin: 8px 0; text-align:left; }
+    .ok { color:#0a7; font-weight:700; }
+    .ng { color:#d33; font-weight:700; }
   </style>
 </head>
 <body>
 
-<h2>家庭学習クイズ（単元選択）</h2>
-<div class="muted">科目→大単元→節が表示できれば成功。次の段階で出題画面を追加します。</div>
+<h2>家庭学習クイズ</h2>
+<div class="muted">科目→大単元→節を選んで出題。4択/キーワード/自己採点に対応。</div>
 
-<div class="card">
+<!-- 設定 -->
+<div class="card" id="setup">
   <label>科目</label>
   <select id="subject">
     <option value="history">歴史</option>
@@ -44,30 +51,123 @@
     </div>
   </div>
 
-  <button id="reloadBtn" class="secondary">再読み込み</button>
+  <div class="row">
+    <div>
+      <label>問題数</label>
+      <input id="numQ" type="number" min="1" max="50" value="10" />
+    </div>
+    <div>
+      <label>タイプ</label>
+      <select id="typeFilter">
+        <option value="">すべて</option>
+        <option value="mcq">4択</option>
+        <option value="keyword">キーワード</option>
+        <option value="self">自己採点</option>
+      </select>
+    </div>
+  </div>
+
+  <button id="startBtn">出題開始</button>
+  <button class="secondary" id="reloadBtn">単元一覧を再読込</button>
   <div class="muted" id="status"></div>
 </div>
 
+<!-- 出題 -->
+<div class="card" id="quiz" style="display:none;">
+  <div id="progress" class="muted"></div>
+  <div id="meta"></div>
+  <h3 id="qText"></h3>
+
+  <div id="mcqArea" class="choices" style="display:none;"></div>
+
+  <div id="kwArea" style="display:none;">
+    <label>回答（文章でOK）</label>
+    <textarea id="kwInput" rows="3" placeholder="ここに入力"></textarea>
+    <button id="kwCheckBtn">採点する</button>
+  </div>
+
+  <div id="selfArea" style="display:none;">
+    <label>回答（任意）</label>
+    <textarea id="selfInput" rows="3" placeholder="ここに入力（任意）"></textarea>
+    <button id="selfRevealBtn">模範解答・解説を見る</button>
+    <div id="selfReveal" style="display:none; margin-top:10px;"></div>
+    <div id="selfMark" style="display:none;">
+      <button id="selfOkBtn">○（正解）</button>
+      <button class="secondary" id="selfNgBtn">×（不正解）</button>
+    </div>
+  </div>
+
+  <div id="feedback" style="margin-top:10px;"></div>
+  <button class="secondary" id="nextBtn" style="display:none;">次の問題</button>
+  <button class="secondary" id="quitBtn">やめる（結果へ）</button>
+</div>
+
+<!-- 結果 -->
+<div class="card" id="result" style="display:none;">
+  <h3>結果</h3>
+  <div id="scoreLine"></div>
+  <div id="review"></div>
+  <button id="backBtn">トップへ戻る</button>
+</div>
+
 <script>
-  // ★ここをあなたの exec URL に置き換え
+  // ★あなたのexec URL（ここはあなたのものになっていればOK）
   const API_BASE = "https://script.google.com/macros/s/AKfycbyVNfQjqvEJZAKv13SOULHAqLUk2WZEFRdotZBL_aRPQDYXdklTcSojvDrMndnI3qdGsw/exec";
 
   const els = {
     subject: document.getElementById('subject'),
     unitBig: document.getElementById('unitBig'),
     unitSection: document.getElementById('unitSection'),
+    numQ: document.getElementById('numQ'),
+    typeFilter: document.getElementById('typeFilter'),
+    startBtn: document.getElementById('startBtn'),
     reloadBtn: document.getElementById('reloadBtn'),
-    status: document.getElementById('status')
+    status: document.getElementById('status'),
+
+    setup: document.getElementById('setup'),
+    quiz: document.getElementById('quiz'),
+    result: document.getElementById('result'),
+
+    progress: document.getElementById('progress'),
+    meta: document.getElementById('meta'),
+    qText: document.getElementById('qText'),
+
+    mcqArea: document.getElementById('mcqArea'),
+
+    kwArea: document.getElementById('kwArea'),
+    kwInput: document.getElementById('kwInput'),
+    kwCheckBtn: document.getElementById('kwCheckBtn'),
+
+    selfArea: document.getElementById('selfArea'),
+    selfInput: document.getElementById('selfInput'),
+    selfRevealBtn: document.getElementById('selfRevealBtn'),
+    selfReveal: document.getElementById('selfReveal'),
+    selfMark: document.getElementById('selfMark'),
+    selfOkBtn: document.getElementById('selfOkBtn'),
+    selfNgBtn: document.getElementById('selfNgBtn'),
+
+    feedback: document.getElementById('feedback'),
+    nextBtn: document.getElementById('nextBtn'),
+    quitBtn: document.getElementById('quitBtn'),
+
+    scoreLine: document.getElementById('scoreLine'),
+    review: document.getElementById('review'),
+    backBtn: document.getElementById('backBtn')
   };
 
   let allForSubject = [];
+  let quizList = [];
+  let idx = 0;
+  let correct = 0;
+  let results = [];
+
+  function show(el, on) { el.style.display = on ? "" : "none"; }
 
   function qs(params) {
     const u = new URL(API_BASE);
     Object.entries(params).forEach(([k,v]) => {
       if (v !== undefined && v !== null && String(v).trim() !== "") u.searchParams.set(k, v);
     });
-    // キャッシュ回避
     u.searchParams.set("_t", Date.now().toString());
     return u.toString();
   }
@@ -139,10 +239,182 @@
     els.status.textContent = `読み込み完了：${json.count}件（科目=${subject}）`;
   }
 
+  function shuffle(arr) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function resetQuizUI() {
+    els.feedback.innerHTML = "";
+    show(els.nextBtn, false);
+    show(els.mcqArea, false);
+    show(els.kwArea, false);
+    show(els.selfArea, false);
+    els.kwInput.value = "";
+    els.selfInput.value = "";
+    els.selfReveal.innerHTML = "";
+    show(els.selfReveal, false);
+    show(els.selfMark, false);
+  }
+
+  function renderQuestion(q) {
+    resetQuizUI();
+    els.progress.textContent = `問題 ${idx + 1} / ${quizList.length}`;
+    els.meta.innerHTML =
+      `<span class="pill">${q.subject || ""}</span>` +
+      `<span class="pill">${q.unit_big || ""}</span>` +
+      `<span class="pill">${q.unit_section || ""}</span>` +
+      (q.tags ? `<span class="pill">${q.tags}</span>` : "");
+    els.qText.textContent = String(q.question || "");
+
+    const type = String(q.type || "").toLowerCase();
+
+    if (type === "mcq") {
+      show(els.mcqArea, true);
+      const choices = [
+        ["A", q.choice_a],
+        ["B", q.choice_b],
+        ["C", q.choice_c],
+        ["D", q.choice_d]
+      ].filter(([,v]) => String(v||"").trim() !== "");
+
+      els.mcqArea.innerHTML = choices.map(([k,v]) =>
+        `<button data-k="${k}"><strong>${k}.</strong> ${escapeHtml(v)}</button>`
+      ).join("");
+
+      els.mcqArea.querySelectorAll("button").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const picked = btn.getAttribute("data-k");
+          gradeMCQ(q, picked);
+        }, { once: true });
+      });
+    } else if (type === "keyword") {
+      show(els.kwArea, true);
+      els.kwCheckBtn.onclick = () => gradeKeyword(q);
+    } else {
+      show(els.selfArea, true);
+      els.selfRevealBtn.onclick = () => revealSelf(q);
+      els.selfOkBtn.onclick = () => markSelf(q, true);
+      els.selfNgBtn.onclick = () => markSelf(q, false);
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  function showAnswerBlock(q) {
+    const ans = (q.answer ?? "").toString();
+    const exp = (q.explanation ?? "").toString();
+    let html = "";
+    if (ans) html += `<div><strong>模範解答：</strong>${escapeHtml(ans)}</div>`;
+    if (exp) html += `<div style="margin-top:6px;"><strong>解説：</strong>${escapeHtml(exp)}</div>`;
+    return html || `<div class="muted">（模範解答/解説が未入力です）</div>`;
+  }
+
+  function afterGrade(q, ok) {
+    results.push({ ok, q: q.question, unit_big: q.unit_big, unit_section: q.unit_section });
+    if (ok) correct++;
+    show(els.nextBtn, true);
+    els.nextBtn.onclick = next;
+  }
+
+  function gradeMCQ(q, picked) {
+    const correctKey = String(q.correct||"").trim().toUpperCase();
+    const ok = picked === correctKey;
+    els.feedback.innerHTML =
+      `<div>${ok ? `<span class="ok">正解</span>` : `<span class="ng">不正解</span>`}（あなた：${picked} / 正解：${correctKey || "?"}）</div>` +
+      `<div style="margin-top:8px;">${showAnswerBlock(q)}</div>`;
+    afterGrade(q, ok);
+  }
+
+  function gradeKeyword(q) {
+    const input = els.kwInput.value || "";
+    const kws = String(q.keywords||"").split(",").map(s => s.trim()).filter(Boolean);
+    const need = Number(q.keyword_min || 1);
+    const hit = kws.filter(k => input.includes(k)).length;
+    const ok = hit >= (Number.isFinite(need) ? need : 1);
+
+    els.feedback.innerHTML =
+      `<div>${ok ? `<span class="ok">正解</span>` : `<span class="ng">不正解</span>`}（一致：${hit} / 必要：${need}）</div>` +
+      (kws.length ? `<div class="muted">キーワード：${escapeHtml(kws.join(" / "))}</div>` : "") +
+      `<div style="margin-top:8px;">${showAnswerBlock(q)}</div>`;
+
+    afterGrade(q, ok);
+  }
+
+  function revealSelf(q) {
+    els.selfReveal.innerHTML = showAnswerBlock(q);
+    show(els.selfReveal, true);
+    show(els.selfMark, true);
+  }
+
+  function markSelf(q, ok) {
+    els.feedback.innerHTML = `<div>自己採点：${ok ? `<span class="ok">○</span>` : `<span class="ng">×</span>`}</div>`;
+    afterGrade(q, ok);
+  }
+
+  function next() {
+    idx++;
+    if (idx >= quizList.length) return showResult();
+    renderQuestion(quizList[idx]);
+  }
+
+  function showResult() {
+    show(els.setup, false);
+    show(els.quiz, false);
+    show(els.result, true);
+
+    els.scoreLine.innerHTML = `<div><strong>${correct} / ${quizList.length}</strong>（正答率 ${(correct/quizList.length*100).toFixed(0)}%）</div>`;
+
+    const wrongs = results.filter(r => !r.ok);
+    if (wrongs.length === 0) {
+      els.review.innerHTML = `<div class="ok">全問正解！</div>`;
+    } else {
+      els.review.innerHTML =
+        `<div class="ng">間違い：${wrongs.length}問</div>` +
+        `<ol>${wrongs.map(w => `<li>${escapeHtml(w.unit_big||"")} / ${escapeHtml(w.unit_section||"")}：${escapeHtml(w.q||"")}</li>`).join("")}</ol>`;
+    }
+  }
+
+  function startQuiz() {
+    const subject = els.subject.value;
+    const unitBig = els.unitBig.value;
+    const unitSection = els.unitSection.value;
+    const type = els.typeFilter.value;
+    const n = Math.max(1, Math.min(50, Number(els.numQ.value || 10)));
+
+    let pool = allForSubject.filter(q =>
+      String(q.subject||"").toLowerCase() === subject &&
+      String(q.unit_big||"").trim() === unitBig &&
+      String(q.unit_section||"").trim() === unitSection
+    );
+    if (type) pool = pool.filter(q => String(q.type||"").toLowerCase() === type);
+
+    if (pool.length === 0) {
+      alert("この条件の問題がありません。問題を追加するか、条件を変えてください。");
+      return;
+    }
+
+    quizList = shuffle(pool).slice(0, Math.min(n, pool.length));
+    idx = 0;
+    correct = 0;
+    results = [];
+
+    show(els.setup, false);
+    show(els.result, false);
+    show(els.quiz, true);
+
+    renderQuestion(quizList[0]);
+  }
+
+  // イベント
   els.reloadBtn.onclick = () => loadCatalog().catch(e => els.status.textContent = "読込失敗：" + e.message);
-
   els.subject.onchange = () => loadCatalog().catch(e => els.status.textContent = "読込失敗：" + e.message);
-
   els.unitBig.onchange = () => {
     const big = els.unitBig.value;
     const sections = uniqSortSections(allForSubject, big);
@@ -150,10 +422,16 @@
       ? sections.map(s => `<option value="${s}">${s}</option>`).join("")
       : `<option value="">（節なし）</option>`;
   };
+  els.startBtn.onclick = startQuiz;
 
+  els.quitBtn.onclick = showResult;
+  els.backBtn.onclick = () => { show(els.result,false); show(els.quiz,false); show(els.setup,true); };
+
+  // 初期読込
   loadCatalog().catch(e => els.status.textContent = "初期読込失敗：" + e.message);
 </script>
 </body>
 </html>
+
 
 
