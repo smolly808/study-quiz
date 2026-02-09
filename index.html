@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="ja">
 <head>
@@ -9,10 +8,13 @@
     body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 16px; line-height: 1.5; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; margin: 12px 0; }
     label { display:block; margin: 8px 0 4px; font-weight: 600; }
-    select, input[type="number"], textarea, button { width: 100%; font-size: 16px; padding: 10px; border-radius: 10px; border: 1px solid #ccc; }
+    select, input[type="number"], textarea, button {
+      width: 100%; font-size: 16px; padding: 10px; border-radius: 10px; border: 1px solid #ccc;
+    }
     textarea { resize: vertical; }
     button { border: none; background: #111; color: #fff; margin-top: 10px; }
     button.secondary { background: #666; }
+    button:disabled { background:#ccc; color:#777; }
     .row { display:flex; gap:10px; }
     .row > * { flex:1; }
     .muted { color:#666; font-size: 13px; }
@@ -20,6 +22,7 @@
     .choices button { background:#f3f3f3; color:#111; border:1px solid #ddd; margin: 8px 0; text-align:left; }
     .ok { color:#0a7; font-weight:700; }
     .ng { color:#d33; font-weight:700; }
+    hr { border:none; border-top:1px solid #eee; margin:12px 0; }
   </style>
 </head>
 <body>
@@ -83,7 +86,8 @@
   <div id="kwArea" style="display:none;">
     <label>回答（文章でOK）</label>
     <textarea id="kwInput" rows="3" placeholder="ここに入力"></textarea>
-    <button id="kwCheckBtn">採点する</button>
+    <button id="kwCheckBtn" disabled>採点する</button>
+    <div class="muted">※入力が空のときは採点できません</div>
   </div>
 
   <div id="selfArea" style="display:none;">
@@ -97,7 +101,9 @@
     </div>
   </div>
 
-  <div id="feedback" style="margin-top:10px;"></div>
+  <hr />
+  <div id="feedback"></div>
+
   <button class="secondary" id="nextBtn" style="display:none;">次の問題</button>
   <button class="secondary" id="quitBtn">やめる（結果へ）</button>
 </div>
@@ -111,7 +117,7 @@
 </div>
 
 <script>
-  // ★あなたのexec URL（ここはあなたのものになっていればOK）
+  // ★あなたのexec URL（必要ならここだけ差し替え）
   const API_BASE = "https://script.google.com/macros/s/AKfycbyVNfQjqvEJZAKv13SOULHAqLUk2WZEFRdotZBL_aRPQDYXdklTcSojvDrMndnI3qdGsw/exec";
 
   const els = {
@@ -152,7 +158,7 @@
 
     scoreLine: document.getElementById('scoreLine'),
     review: document.getElementById('review'),
-    backBtn: document.getElementById('backBtn')
+    backBtn: document.getElementById('backBtn'),
   };
 
   let allForSubject = [];
@@ -160,6 +166,9 @@
   let idx = 0;
   let correct = 0;
   let results = [];
+
+  // ★「この問題は採点済みか？」を管理（ここが今回の肝）
+  let isAnswered = false;
 
   function show(el, on) { el.style.display = on ? "" : "none"; }
 
@@ -172,7 +181,6 @@
     return u.toString();
   }
 
-  // JSONP（CORS回避）
   function fetchJSONP(url) {
     return new Promise((resolve, reject) => {
       const cbName = "jsonp_cb_" + Math.random().toString(36).slice(2);
@@ -188,6 +196,10 @@
       function cleanup() { delete window[cbName]; script.remove(); }
       document.body.appendChild(script);
     });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   }
 
   function uniqSortUnits(items) {
@@ -227,13 +239,13 @@
 
     const unitBigs = uniqSortUnits(allForSubject);
     els.unitBig.innerHTML = unitBigs.length
-      ? unitBigs.map(u => `<option value="${u}">${u}</option>`).join("")
+      ? unitBigs.map(u => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join("")
       : `<option value="">（問題なし）</option>`;
 
     const firstBig = unitBigs[0] || "";
     const sections = uniqSortSections(allForSubject, firstBig);
     els.unitSection.innerHTML = sections.length
-      ? sections.map(s => `<option value="${s}">${s}</option>`).join("")
+      ? sections.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")
       : `<option value="">（節なし）</option>`;
 
     els.status.textContent = `読み込み完了：${json.count}件（科目=${subject}）`;
@@ -249,26 +261,70 @@
   }
 
   function resetQuizUI() {
+    isAnswered = false; // ★新しい問題になったら未採点に戻す
+
     els.feedback.innerHTML = "";
     show(els.nextBtn, false);
     show(els.mcqArea, false);
     show(els.kwArea, false);
     show(els.selfArea, false);
+
+    // keyword
     els.kwInput.value = "";
+    els.kwInput.disabled = false;
+    els.kwCheckBtn.disabled = true;     // 空欄は押せない
+    els.kwCheckBtn.textContent = "採点する";
+
+    // self
     els.selfInput.value = "";
+    els.selfInput.disabled = false;
     els.selfReveal.innerHTML = "";
     show(els.selfReveal, false);
     show(els.selfMark, false);
+    els.selfRevealBtn.disabled = false;
+    els.selfRevealBtn.textContent = "模範解答・解説を見る";
+    els.selfOkBtn.disabled = false;
+    els.selfNgBtn.disabled = false;
+  }
+
+  // ★採点後に「この問題内の再採点」を防ぐためのロック
+  function lockAfterAnswered(type) {
+    isAnswered = true;
+
+    if (type === "keyword") {
+      els.kwCheckBtn.disabled = true;
+      els.kwInput.disabled = true;
+      els.kwCheckBtn.textContent = "採点済み";
+    }
+
+    if (type === "self") {
+      els.selfRevealBtn.disabled = true;
+      els.selfOkBtn.disabled = true;
+      els.selfNgBtn.disabled = true;
+      els.selfInput.disabled = true;
+      els.selfRevealBtn.textContent = "採点済み";
+    }
+  }
+
+  function showAnswerBlock(q) {
+    const ans = (q.answer ?? "").toString();
+    const exp = (q.explanation ?? "").toString();
+    let html = "";
+    if (ans) html += `<div><strong>模範解答：</strong>${escapeHtml(ans)}</div>`;
+    if (exp) html += `<div style="margin-top:6px;"><strong>解説：</strong>${escapeHtml(exp)}</div>`;
+    return html || `<div class="muted">（模範解答/解説が未入力です）</div>`;
   }
 
   function renderQuestion(q) {
     resetQuizUI();
+
     els.progress.textContent = `問題 ${idx + 1} / ${quizList.length}`;
     els.meta.innerHTML =
-      `<span class="pill">${q.subject || ""}</span>` +
-      `<span class="pill">${q.unit_big || ""}</span>` +
-      `<span class="pill">${q.unit_section || ""}</span>` +
-      (q.tags ? `<span class="pill">${q.tags}</span>` : "");
+      `<span class="pill">${escapeHtml(q.subject || "")}</span>` +
+      `<span class="pill">${escapeHtml(q.unit_big || "")}</span>` +
+      `<span class="pill">${escapeHtml(q.unit_section || "")}</span>` +
+      (q.tags ? `<span class="pill">${escapeHtml(q.tags)}</span>` : "");
+
     els.qText.textContent = String(q.question || "");
 
     const type = String(q.type || "").toLowerCase();
@@ -288,37 +344,53 @@
 
       els.mcqArea.querySelectorAll("button").forEach(btn => {
         btn.addEventListener("click", () => {
+          if (isAnswered) return; // 念のため
           const picked = btn.getAttribute("data-k");
           gradeMCQ(q, picked);
         }, { once: true });
       });
+
     } else if (type === "keyword") {
       show(els.kwArea, true);
-      els.kwCheckBtn.onclick = () => gradeKeyword(q);
+
+      // 入力が空なら採点ボタン無効
+      els.kwInput.oninput = () => {
+        if (isAnswered) return;
+        els.kwCheckBtn.disabled = els.kwInput.value.trim().length === 0;
+      };
+
+      els.kwCheckBtn.onclick = () => {
+        if (isAnswered) return;
+        gradeKeyword(q);
+      };
+
     } else {
       show(els.selfArea, true);
-      els.selfRevealBtn.onclick = () => revealSelf(q);
-      els.selfOkBtn.onclick = () => markSelf(q, true);
-      els.selfNgBtn.onclick = () => markSelf(q, false);
+
+      els.selfRevealBtn.onclick = () => {
+        if (isAnswered) return;
+        revealSelf(q);
+      };
+
+      els.selfOkBtn.onclick = () => {
+        if (isAnswered) return;
+        markSelf(q, true);
+      };
+
+      els.selfNgBtn.onclick = () => {
+        if (isAnswered) return;
+        markSelf(q, false);
+      };
     }
   }
 
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-  }
-
-  function showAnswerBlock(q) {
-    const ans = (q.answer ?? "").toString();
-    const exp = (q.explanation ?? "").toString();
-    let html = "";
-    if (ans) html += `<div><strong>模範解答：</strong>${escapeHtml(ans)}</div>`;
-    if (exp) html += `<div style="margin-top:6px;"><strong>解説：</strong>${escapeHtml(exp)}</div>`;
-    return html || `<div class="muted">（模範解答/解説が未入力です）</div>`;
-  }
-
-  function afterGrade(q, ok) {
+  function afterGrade(q, ok, type) {
     results.push({ ok, q: q.question, unit_big: q.unit_big, unit_section: q.unit_section });
     if (ok) correct++;
+
+    // ★採点後ロック（今回追加）
+    lockAfterAnswered(type);
+
     show(els.nextBtn, true);
     els.nextBtn.onclick = next;
   }
@@ -326,10 +398,12 @@
   function gradeMCQ(q, picked) {
     const correctKey = String(q.correct||"").trim().toUpperCase();
     const ok = picked === correctKey;
+
     els.feedback.innerHTML =
       `<div>${ok ? `<span class="ok">正解</span>` : `<span class="ng">不正解</span>`}（あなた：${picked} / 正解：${correctKey || "?"}）</div>` +
       `<div style="margin-top:8px;">${showAnswerBlock(q)}</div>`;
-    afterGrade(q, ok);
+
+    afterGrade(q, ok, "mcq");
   }
 
   function gradeKeyword(q) {
@@ -344,7 +418,7 @@
       (kws.length ? `<div class="muted">キーワード：${escapeHtml(kws.join(" / "))}</div>` : "") +
       `<div style="margin-top:8px;">${showAnswerBlock(q)}</div>`;
 
-    afterGrade(q, ok);
+    afterGrade(q, ok, "keyword");
   }
 
   function revealSelf(q) {
@@ -355,7 +429,7 @@
 
   function markSelf(q, ok) {
     els.feedback.innerHTML = `<div>自己採点：${ok ? `<span class="ok">○</span>` : `<span class="ng">×</span>`}</div>`;
-    afterGrade(q, ok);
+    afterGrade(q, ok, "self");
   }
 
   function next() {
@@ -369,7 +443,8 @@
     show(els.quiz, false);
     show(els.result, true);
 
-    els.scoreLine.innerHTML = `<div><strong>${correct} / ${quizList.length}</strong>（正答率 ${(correct/quizList.length*100).toFixed(0)}%）</div>`;
+    els.scoreLine.innerHTML =
+      `<div><strong>${correct} / ${quizList.length}</strong>（正答率 ${(correct/quizList.length*100).toFixed(0)}%）</div>`;
 
     const wrongs = results.filter(r => !r.ok);
     if (wrongs.length === 0) {
@@ -415,23 +490,22 @@
   // イベント
   els.reloadBtn.onclick = () => loadCatalog().catch(e => els.status.textContent = "読込失敗：" + e.message);
   els.subject.onchange = () => loadCatalog().catch(e => els.status.textContent = "読込失敗：" + e.message);
+
   els.unitBig.onchange = () => {
     const big = els.unitBig.value;
     const sections = uniqSortSections(allForSubject, big);
     els.unitSection.innerHTML = sections.length
-      ? sections.map(s => `<option value="${s}">${s}</option>`).join("")
+      ? sections.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")
       : `<option value="">（節なし）</option>`;
   };
-  els.startBtn.onclick = startQuiz;
 
+  els.startBtn.onclick = startQuiz;
   els.quitBtn.onclick = showResult;
   els.backBtn.onclick = () => { show(els.result,false); show(els.quiz,false); show(els.setup,true); };
 
   // 初期読込
   loadCatalog().catch(e => els.status.textContent = "初期読込失敗：" + e.message);
 </script>
+
 </body>
 </html>
-
-
-
