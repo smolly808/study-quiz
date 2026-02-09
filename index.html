@@ -14,6 +14,7 @@
     textarea { resize: vertical; }
     button { border: none; background: #111; color: #fff; margin-top: 10px; }
     button.secondary { background: #666; }
+    button.danger { background:#b00020; }
     button:disabled { background:#ccc; color:#777; }
     .row { display:flex; gap:10px; }
     .row > * { flex:1; }
@@ -28,7 +29,7 @@
 <body>
 
 <h2>家庭学習クイズ</h2>
-<div class="muted">科目→大単元→節を選んで出題。4択/キーワード/自己採点に対応。</div>
+<div class="muted">苦手ほど出題頻度が上がります（端末内保存）。</div>
 
 <!-- 設定 -->
 <div class="card" id="setup">
@@ -70,9 +71,20 @@
     </div>
   </div>
 
+  <label>苦手優先</label>
+  <select id="weakMode">
+    <option value="off">OFF（完全ランダム）</option>
+    <option value="mid" selected>ON（標準）</option>
+    <option value="strong">ON（強め）</option>
+  </select>
+
   <button id="startBtn">出題開始</button>
   <button class="secondary" id="reloadBtn">単元一覧を再読込</button>
+
+  <button class="danger" id="resetStatsBtn">学習履歴をリセット（この端末）</button>
+
   <div class="muted" id="status"></div>
+  <div class="muted" id="statsSummary"></div>
 </div>
 
 <!-- 出題 -->
@@ -117,18 +129,112 @@
 </div>
 
 <script>
-  // ★あなたのexec URL（必要ならここだけ差し替え）
+  // ★あなたのexec URL
   const API_BASE = "https://script.google.com/macros/s/AKfycbyVNfQjqvEJZAKv13SOULHAqLUk2WZEFRdotZBL_aRPQDYXdklTcSojvDrMndnI3qdGsw/exec";
 
+  // ====== 学習履歴（端末内） ======
+  const STATS_KEY = "quiz_stats_v1"; // { [id]: {ok, ng, lastAt} }
+
+  function loadStats() {
+    try { return JSON.parse(localStorage.getItem(STATS_KEY) || "{}"); }
+    catch { return {}; }
+  }
+  function saveStats(stats) {
+    localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+  }
+  function recordAttempt(q, ok) {
+    const id = String(q.id ?? "");
+    if (!id) return;
+    const stats = loadStats();
+    const cur = stats[id] || { ok: 0, ng: 0, lastAt: 0 };
+    if (ok) cur.ok += 1; else cur.ng += 1;
+    cur.lastAt = Date.now();
+    stats[id] = cur;
+    saveStats(stats);
+  }
+  function summarizeStatsForPool(pool) {
+    const stats = loadStats();
+    let seen = 0, ok = 0, ng = 0;
+    for (const q of pool) {
+      const id = String(q.id ?? "");
+      const s = stats[id];
+      if (!s) continue;
+      seen += 1;
+      ok += (s.ok || 0);
+      ng += (s.ng || 0);
+    }
+    return { seen, ok, ng };
+  }
+  function resetStats() {
+    localStorage.removeItem(STATS_KEY);
+  }
+
+  // 重み計算：苦手ほど重く、最近間違いに少しブースト
+  function weightForQuestion(q, mode) {
+    if (mode === "off") return 1;
+
+    const stats = loadStats();
+    const id = String(q.id ?? "");
+    const s = stats[id] || { ok: 0, ng: 0, lastAt: 0 };
+
+    const ok = Number(s.ok || 0);
+    const ng = Number(s.ng || 0);
+    const total = ok + ng;
+
+    // 不正解率（未学習は0扱い＝普通）
+    const wrongRate = total > 0 ? (ng / total) : 0;
+
+    // 最近間違えたら少しブースト（24時間以内）
+    const recentHours = (Date.now() - (s.lastAt || 0)) / 36e5;
+    const recentBoost = (ng > 0 && recentHours <= 24) ? 0.4 : 0;
+
+    // モードごとに強さを変える
+    const k = (mode === "strong") ? 3.0 : 2.0;   // 不正解率の効き
+    const b = (mode === "strong") ? 1.3 : 1.1;   // 不正解回数の効き
+
+    // 未学習にも少し出したいので base=1 は維持
+    const w = 1
+      + k * wrongRate
+      + b * Math.min(5, ng) / 5
+      + recentBoost;
+
+    return Math.max(0.2, w);
+  }
+
+  // 重み付き抽出（重複なし）
+  function sampleWeightedUnique(pool, n, mode) {
+    const items = pool.map(q => ({ q, w: weightForQuestion(q, mode) }));
+    const picked = [];
+    const N = Math.min(n, items.length);
+
+    for (let i = 0; i < N; i++) {
+      const sum = items.reduce((a, x) => a + x.w, 0);
+      let r = Math.random() * sum;
+      let idx = -1;
+      for (let j = 0; j < items.length; j++) {
+        r -= items[j].w;
+        if (r <= 0) { idx = j; break; }
+      }
+      if (idx < 0) idx = items.length - 1;
+      picked.push(items[idx].q);
+      items.splice(idx, 1);
+    }
+    return picked;
+  }
+
+  // ====== UI ======
   const els = {
     subject: document.getElementById('subject'),
     unitBig: document.getElementById('unitBig'),
     unitSection: document.getElementById('unitSection'),
     numQ: document.getElementById('numQ'),
     typeFilter: document.getElementById('typeFilter'),
+    weakMode: document.getElementById('weakMode'),
     startBtn: document.getElementById('startBtn'),
     reloadBtn: document.getElementById('reloadBtn'),
+    resetStatsBtn: document.getElementById('resetStatsBtn'),
     status: document.getElementById('status'),
+    statsSummary: document.getElementById('statsSummary'),
 
     setup: document.getElementById('setup'),
     quiz: document.getElementById('quiz'),
@@ -166,8 +272,6 @@
   let idx = 0;
   let correct = 0;
   let results = [];
-
-  // ★「この問題は採点済みか？」を管理（ここが今回の肝）
   let isAnswered = false;
 
   function show(el, on) { el.style.display = on ? "" : "none"; }
@@ -249,19 +353,37 @@
       : `<option value="">（節なし）</option>`;
 
     els.status.textContent = `読み込み完了：${json.count}件（科目=${subject}）`;
+    refreshStatsSummary();
   }
 
-  function shuffle(arr) {
-    const a = [...arr];
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
+  function currentPool() {
+    const subject = els.subject.value;
+    const unitBig = els.unitBig.value;
+    const unitSection = els.unitSection.value;
+    const type = els.typeFilter.value;
+
+    let pool = allForSubject.filter(q =>
+      String(q.subject||"").toLowerCase() === subject &&
+      String(q.unit_big||"").trim() === unitBig &&
+      String(q.unit_section||"").trim() === unitSection
+    );
+    if (type) pool = pool.filter(q => String(q.type||"").toLowerCase() === type);
+    return pool;
+  }
+
+  function refreshStatsSummary() {
+    const pool = currentPool();
+    const sum = summarizeStatsForPool(pool);
+    if (pool.length === 0) {
+      els.statsSummary.textContent = "";
+      return;
     }
-    return a;
+    els.statsSummary.textContent =
+      `この条件の問題：${pool.length}問 / 学習済み：${sum.seen}問（正解${sum.ok}・不正解${sum.ng}）`;
   }
 
   function resetQuizUI() {
-    isAnswered = false; // ★新しい問題になったら未採点に戻す
+    isAnswered = false;
 
     els.feedback.innerHTML = "";
     show(els.nextBtn, false);
@@ -269,13 +391,11 @@
     show(els.kwArea, false);
     show(els.selfArea, false);
 
-    // keyword
     els.kwInput.value = "";
     els.kwInput.disabled = false;
-    els.kwCheckBtn.disabled = true;     // 空欄は押せない
+    els.kwCheckBtn.disabled = true;
     els.kwCheckBtn.textContent = "採点する";
 
-    // self
     els.selfInput.value = "";
     els.selfInput.disabled = false;
     els.selfReveal.innerHTML = "";
@@ -287,7 +407,6 @@
     els.selfNgBtn.disabled = false;
   }
 
-  // ★採点後に「この問題内の再採点」を防ぐためのロック
   function lockAfterAnswered(type) {
     isAnswered = true;
 
@@ -344,7 +463,7 @@
 
       els.mcqArea.querySelectorAll("button").forEach(btn => {
         btn.addEventListener("click", () => {
-          if (isAnswered) return; // 念のため
+          if (isAnswered) return;
           const picked = btn.getAttribute("data-k");
           gradeMCQ(q, picked);
         }, { once: true });
@@ -353,7 +472,6 @@
     } else if (type === "keyword") {
       show(els.kwArea, true);
 
-      // 入力が空なら採点ボタン無効
       els.kwInput.oninput = () => {
         if (isAnswered) return;
         els.kwCheckBtn.disabled = els.kwInput.value.trim().length === 0;
@@ -388,7 +506,9 @@
     results.push({ ok, q: q.question, unit_big: q.unit_big, unit_section: q.unit_section });
     if (ok) correct++;
 
-    // ★採点後ロック（今回追加）
+    // ★ここで学習履歴に保存（苦手克服の核心）
+    recordAttempt(q, ok);
+
     lockAfterAnswered(type);
 
     show(els.nextBtn, true);
@@ -454,28 +574,23 @@
         `<div class="ng">間違い：${wrongs.length}問</div>` +
         `<ol>${wrongs.map(w => `<li>${escapeHtml(w.unit_big||"")} / ${escapeHtml(w.unit_section||"")}：${escapeHtml(w.q||"")}</li>`).join("")}</ol>`;
     }
+
+    // 結果画面に戻ったら、トップ表示時にサマリ更新されるように
   }
 
   function startQuiz() {
-    const subject = els.subject.value;
-    const unitBig = els.unitBig.value;
-    const unitSection = els.unitSection.value;
-    const type = els.typeFilter.value;
+    const pool = currentPool();
     const n = Math.max(1, Math.min(50, Number(els.numQ.value || 10)));
-
-    let pool = allForSubject.filter(q =>
-      String(q.subject||"").toLowerCase() === subject &&
-      String(q.unit_big||"").trim() === unitBig &&
-      String(q.unit_section||"").trim() === unitSection
-    );
-    if (type) pool = pool.filter(q => String(q.type||"").toLowerCase() === type);
+    const mode = els.weakMode.value;
 
     if (pool.length === 0) {
       alert("この条件の問題がありません。問題を追加するか、条件を変えてください。");
       return;
     }
 
-    quizList = shuffle(pool).slice(0, Math.min(n, pool.length));
+    // ★苦手優先の重み付き抽出
+    quizList = sampleWeightedUnique(pool, n, mode);
+
     idx = 0;
     correct = 0;
     results = [];
@@ -497,11 +612,30 @@
     els.unitSection.innerHTML = sections.length
       ? sections.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")
       : `<option value="">（節なし）</option>`;
+    refreshStatsSummary();
   };
 
+  els.unitSection.onchange = refreshStatsSummary;
+  els.typeFilter.onchange = refreshStatsSummary;
+
+  els.weakMode.onchange = refreshStatsSummary;
+
   els.startBtn.onclick = startQuiz;
+
   els.quitBtn.onclick = showResult;
-  els.backBtn.onclick = () => { show(els.result,false); show(els.quiz,false); show(els.setup,true); };
+  els.backBtn.onclick = () => {
+    show(els.result,false);
+    show(els.quiz,false);
+    show(els.setup,true);
+    refreshStatsSummary();
+  };
+
+  els.resetStatsBtn.onclick = () => {
+    if (!confirm("この端末の学習履歴をすべてリセットします。よろしいですか？")) return;
+    resetStats();
+    refreshStatsSummary();
+    alert("リセットしました。");
+  };
 
   // 初期読込
   loadCatalog().catch(e => els.status.textContent = "初期読込失敗：" + e.message);
@@ -509,7 +643,3 @@
 
 </body>
 </html>
-
-</body>
-</html>
-
