@@ -21,19 +21,50 @@
     .muted { color:#666; font-size: 13px; }
     .pill { display:inline-block; padding: 2px 8px; border:1px solid #ddd; border-radius: 999px; font-size: 12px; margin-right:6px; }
     .choices button { background:#f3f3f3; color:#111; border:1px solid #ddd; margin: 8px 0; text-align:left; }
-.ok {
-  color: #00c853;        /* 明るい緑 */
-  font-weight: 900;
-  font-size: 28px;
-}
-
-.ng {
-  color: #ff1744;        /* 強い赤 */
-  font-weight: 900;
-  font-size: 22px;
-}
-
     hr { border:none; border-top:1px solid #eee; margin:12px 0; }
+
+    /* ====== 正解/不正解（大きく・目立つ） ====== */
+    .ok {
+      color: #00c853;
+      font-weight: 900;
+      font-size: 34px;
+      letter-spacing: 0.5px;
+      text-shadow: 0 0 14px rgba(0, 200, 83, 0.35);
+    }
+    .ng {
+      color: #ff1744;
+      font-weight: 900;
+      font-size: 26px;
+      letter-spacing: 0.5px;
+      text-shadow: 0 0 12px rgba(255, 23, 68, 0.25);
+    }
+
+    /* ====== 演出（光る・ポップ） ====== */
+    @keyframes pop {
+      0%   { transform: scale(0.9); opacity: 0.3; }
+      60%  { transform: scale(1.06); opacity: 1; }
+      100% { transform: scale(1.0); }
+    }
+    @keyframes glowOk {
+      0% { box-shadow: 0 0 0 rgba(0,200,83,0.0); }
+      40% { box-shadow: 0 0 22px rgba(0,200,83,0.35); }
+      100% { box-shadow: 0 0 0 rgba(0,200,83,0.0); }
+    }
+    @keyframes glowNg {
+      0% { box-shadow: 0 0 0 rgba(255,23,68,0.0); }
+      40% { box-shadow: 0 0 22px rgba(255,23,68,0.28); }
+      100% { box-shadow: 0 0 0 rgba(255,23,68,0.0); }
+    }
+    .fx-ok { animation: pop 420ms ease-out, glowOk 700ms ease-out; border-radius: 12px; padding: 6px 10px; }
+    .fx-ng { animation: pop 420ms ease-out, glowNg 700ms ease-out; border-radius: 12px; padding: 6px 10px; }
+
+    /* ====== 連続正解 ====== */
+    .streak {
+      margin-top: 6px;
+      font-weight: 800;
+      font-size: 18px;
+    }
+    .streak .fire { filter: drop-shadow(0 0 10px rgba(255,165,0,0.35)); }
   </style>
 </head>
 <body>
@@ -86,6 +117,12 @@
     <option value="off">OFF（完全ランダム）</option>
     <option value="mid" selected>ON（標準）</option>
     <option value="strong">ON（強め）</option>
+  </select>
+
+  <label>演出</label>
+  <select id="fxMode">
+    <option value="on" selected>ON（効果音/光る/バイブ/連続正解）</option>
+    <option value="off">OFF</option>
   </select>
 
   <button id="startBtn">出題開始</button>
@@ -142,7 +179,9 @@
   // ★あなたのexec URL
   const API_BASE = "https://script.google.com/macros/s/AKfycbyVNfQjqvEJZAKv13SOULHAqLUk2WZEFRdotZBL_aRPQDYXdklTcSojvDrMndnI3qdGsw/exec";
 
-  // ====== 学習履歴（端末内） ======
+  // =========================
+  // 学習履歴（端末内：localStorage）
+  // =========================
   const STATS_KEY = "quiz_stats_v1"; // { [id]: {ok, ng, lastAt} }
 
   function loadStats() {
@@ -179,7 +218,7 @@
     localStorage.removeItem(STATS_KEY);
   }
 
-  // 重み計算：苦手ほど重く、最近間違いに少しブースト
+  // 苦手重み：不正解率 + 不正解回数 + 最近間違いブースト
   function weightForQuestion(q, mode) {
     if (mode === "off") return 1;
 
@@ -191,18 +230,14 @@
     const ng = Number(s.ng || 0);
     const total = ok + ng;
 
-    // 不正解率（未学習は0扱い＝普通）
     const wrongRate = total > 0 ? (ng / total) : 0;
 
-    // 最近間違えたら少しブースト（24時間以内）
     const recentHours = (Date.now() - (s.lastAt || 0)) / 36e5;
     const recentBoost = (ng > 0 && recentHours <= 24) ? 0.4 : 0;
 
-    // モードごとに強さを変える
-    const k = (mode === "strong") ? 3.0 : 2.0;   // 不正解率の効き
-    const b = (mode === "strong") ? 1.3 : 1.1;   // 不正解回数の効き
+    const k = (mode === "strong") ? 3.0 : 2.0;
+    const b = (mode === "strong") ? 1.3 : 1.1;
 
-    // 未学習にも少し出したいので base=1 は維持
     const w = 1
       + k * wrongRate
       + b * Math.min(5, ng) / 5
@@ -211,7 +246,6 @@
     return Math.max(0.2, w);
   }
 
-  // 重み付き抽出（重複なし）
   function sampleWeightedUnique(pool, n, mode) {
     const items = pool.map(q => ({ q, w: weightForQuestion(q, mode) }));
     const picked = [];
@@ -232,7 +266,9 @@
     return picked;
   }
 
-  // ====== UI ======
+  // =========================
+  // UI
+  // =========================
   const els = {
     subject: document.getElementById('subject'),
     unitBig: document.getElementById('unitBig'),
@@ -240,6 +276,7 @@
     numQ: document.getElementById('numQ'),
     typeFilter: document.getElementById('typeFilter'),
     weakMode: document.getElementById('weakMode'),
+    fxMode: document.getElementById('fxMode'),
     startBtn: document.getElementById('startBtn'),
     reloadBtn: document.getElementById('reloadBtn'),
     resetStatsBtn: document.getElementById('resetStatsBtn'),
@@ -284,6 +321,10 @@
   let results = [];
   let isAnswered = false;
 
+  // 連続正解（セッション内）
+  let streak = 0;
+  let bestStreak = 0;
+
   function show(el, on) { el.style.display = on ? "" : "none"; }
 
   function qs(params) {
@@ -295,6 +336,7 @@
     return u.toString();
   }
 
+  // JSONP（CORS回避）
   function fetchJSONP(url) {
     return new Promise((resolve, reject) => {
       const cbName = "jsonp_cb_" + Math.random().toString(36).slice(2);
@@ -512,14 +554,81 @@
     }
   }
 
+  // =========================
+  // 演出：効果音 / バイブ / 光る / 連続正解
+  // =========================
+  function fxOn() { return els.fxMode.value !== "off"; }
+
+  function vibrate(pattern) {
+    if (!fxOn()) return;
+    if (navigator && typeof navigator.vibrate === "function") {
+      try { navigator.vibrate(pattern); } catch {}
+    }
+  }
+
+  // WebAudio簡易ビープ（音声ファイル不要）
+  let audioCtx = null;
+  function beep(freq, durationMs, type = "sine", gain = 0.06) {
+    if (!fxOn()) return;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const t0 = audioCtx.currentTime;
+
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, t0);
+
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(gain, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + durationMs / 1000);
+
+      osc.connect(g);
+      g.connect(audioCtx.destination);
+
+      osc.start(t0);
+      osc.stop(t0 + durationMs / 1000 + 0.02);
+    } catch {}
+  }
+
+  function soundOk() {
+    beep(880, 90, "sine", 0.07);
+    setTimeout(() => beep(1175, 110, "sine", 0.07), 110);
+  }
+  function soundNg() {
+    beep(220, 140, "triangle", 0.06);
+  }
+
+  function applyFx(ok) {
+    if (!fxOn()) return;
+    els.feedback.classList.remove("fx-ok", "fx-ng");
+    void els.feedback.offsetWidth; // reflow
+    els.feedback.classList.add(ok ? "fx-ok" : "fx-ng");
+  }
+
+  function streakHtml() {
+    const fire = streak >= 3 ? " 🔥" : "";
+    return `<div class="streak"><span class="fire">連続正解：${streak}${fire}</span>（最高：${bestStreak}）</div>`;
+  }
+
   function afterGrade(q, ok, type) {
     results.push({ ok, q: q.question, unit_big: q.unit_big, unit_section: q.unit_section });
     if (ok) correct++;
 
-    // ★ここで学習履歴に保存（苦手克服の核心）
+    // 学習履歴に保存
     recordAttempt(q, ok);
 
+    // 採点済みロック
     lockAfterAnswered(type);
+
+    // 連続正解
+    if (ok) {
+      streak += 1;
+      bestStreak = Math.max(bestStreak, streak);
+    } else {
+      streak = 0;
+    }
 
     show(els.nextBtn, true);
     els.nextBtn.onclick = next;
@@ -529,9 +638,15 @@
     const correctKey = String(q.correct||"").trim().toUpperCase();
     const ok = picked === correctKey;
 
+    applyFx(ok);
+    if (ok) { soundOk(); vibrate([20, 30, 20]); }
+    else { soundNg(); vibrate([80]); }
+
     els.feedback.innerHTML =
-      `<div>${ok ? `<span class="ok">正解</span>` : `<span class="ng">不正解</span>`}（あなた：${picked} / 正解：${correctKey || "?"}）</div>` +
-      `<div style="margin-top:8px;">${showAnswerBlock(q)}</div>`;
+      `<div>${ok ? `<span class="ok">🎉 正解！</span>` : `<span class="ng">✗ 不正解</span>`}</div>` +
+      `<div class="muted">（あなた：${picked} / 正解：${correctKey || "?"}）</div>` +
+      streakHtml() +
+      `<div style="margin-top:10px;">${showAnswerBlock(q)}</div>`;
 
     afterGrade(q, ok, "mcq");
   }
@@ -543,10 +658,16 @@
     const hit = kws.filter(k => input.includes(k)).length;
     const ok = hit >= (Number.isFinite(need) ? need : 1);
 
+    applyFx(ok);
+    if (ok) { soundOk(); vibrate([20, 30, 20]); }
+    else { soundNg(); vibrate([80]); }
+
     els.feedback.innerHTML =
-      `<div>${ok ? `<span class="ok">正解</span>` : `<span class="ng">不正解</span>`}（一致：${hit} / 必要：${need}）</div>` +
+      `<div>${ok ? `<span class="ok">🎉 正解！</span>` : `<span class="ng">✗ 不正解</span>`}</div>` +
+      `<div class="muted">一致：${hit} / 必要：${need}</div>` +
       (kws.length ? `<div class="muted">キーワード：${escapeHtml(kws.join(" / "))}</div>` : "") +
-      `<div style="margin-top:8px;">${showAnswerBlock(q)}</div>`;
+      streakHtml() +
+      `<div style="margin-top:10px;">${showAnswerBlock(q)}</div>`;
 
     afterGrade(q, ok, "keyword");
   }
@@ -558,7 +679,14 @@
   }
 
   function markSelf(q, ok) {
-    els.feedback.innerHTML = `<div>自己採点：${ok ? `<span class="ok">○</span>` : `<span class="ng">×</span>`}</div>`;
+    applyFx(ok);
+    if (ok) { soundOk(); vibrate([20, 30, 20]); }
+    else { soundNg(); vibrate([80]); }
+
+    els.feedback.innerHTML =
+      `<div>${ok ? `<span class="ok">🎉 正解！</span>` : `<span class="ng">✗ 不正解</span>`}</div>` +
+      streakHtml();
+
     afterGrade(q, ok, "self");
   }
 
@@ -574,18 +702,17 @@
     show(els.result, true);
 
     els.scoreLine.innerHTML =
-      `<div><strong>${correct} / ${quizList.length}</strong>（正答率 ${(correct/quizList.length*100).toFixed(0)}%）</div>`;
+      `<div><strong>${correct} / ${quizList.length}</strong>（正答率 ${(correct/quizList.length*100).toFixed(0)}%）</div>` +
+      `<div class="muted">最高連続正解：${bestStreak}</div>`;
 
     const wrongs = results.filter(r => !r.ok);
     if (wrongs.length === 0) {
-      els.review.innerHTML = `<div class="ok">全問正解！</div>`;
+      els.review.innerHTML = `<div class="ok">🎉 全問正解！</div>`;
     } else {
       els.review.innerHTML =
         `<div class="ng">間違い：${wrongs.length}問</div>` +
         `<ol>${wrongs.map(w => `<li>${escapeHtml(w.unit_big||"")} / ${escapeHtml(w.unit_section||"")}：${escapeHtml(w.q||"")}</li>`).join("")}</ol>`;
     }
-
-    // 結果画面に戻ったら、トップ表示時にサマリ更新されるように
   }
 
   function startQuiz() {
@@ -598,12 +725,14 @@
       return;
     }
 
-    // ★苦手優先の重み付き抽出
+    // 苦手優先抽出（重み付き）
     quizList = sampleWeightedUnique(pool, n, mode);
 
     idx = 0;
     correct = 0;
     results = [];
+    streak = 0;
+    bestStreak = 0;
 
     show(els.setup, false);
     show(els.result, false);
@@ -612,7 +741,9 @@
     renderQuestion(quizList[0]);
   }
 
+  // =========================
   // イベント
+  // =========================
   els.reloadBtn.onclick = () => loadCatalog().catch(e => els.status.textContent = "読込失敗：" + e.message);
   els.subject.onchange = () => loadCatalog().catch(e => els.status.textContent = "読込失敗：" + e.message);
 
@@ -627,7 +758,6 @@
 
   els.unitSection.onchange = refreshStatsSummary;
   els.typeFilter.onchange = refreshStatsSummary;
-
   els.weakMode.onchange = refreshStatsSummary;
 
   els.startBtn.onclick = startQuiz;
@@ -653,4 +783,3 @@
 
 </body>
 </html>
-
