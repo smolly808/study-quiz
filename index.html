@@ -65,6 +65,14 @@
       font-size: 18px;
     }
     .streak .fire { filter: drop-shadow(0 0 10px rgba(255,165,0,0.35)); }
+
+    .hint {
+      background:#fafafa;
+      border:1px dashed #ddd;
+      padding:10px;
+      border-radius:10px;
+      margin-top:10px;
+    }
   </style>
 </head>
 <body>
@@ -96,6 +104,13 @@
     </div>
   </div>
 
+  <!-- ★追加：出題範囲（節のみ or 大単元全体） -->
+  <label>出題範囲</label>
+  <select id="rangeMode">
+    <option value="section" selected>この節のみ</option>
+    <option value="big">大単元全体（節をまたぐ）</option>
+  </select>
+
   <div class="row">
     <div>
       <label>問題数</label>
@@ -111,6 +126,13 @@
       </select>
     </div>
   </div>
+
+  <!-- ★追加：出題モード（通常 / 間違えた問題だけ） -->
+  <label>出題モード</label>
+  <select id="sessionMode">
+    <option value="normal" selected>通常</option>
+    <option value="wrongOnly">間違えた問題だけ</option>
+  </select>
 
   <label>苦手優先</label>
   <select id="weakMode">
@@ -132,6 +154,10 @@
 
   <div class="muted" id="status"></div>
   <div class="muted" id="statsSummary"></div>
+
+  <div class="hint muted">
+    「間違えた問題だけ」モードは、いったん通常で解いて履歴（不正解）を作ると効きます。
+  </div>
 </div>
 
 <!-- 出題 -->
@@ -201,9 +227,14 @@
     stats[id] = cur;
     saveStats(stats);
   }
+  function resetStats() {
+    localStorage.removeItem(STATS_KEY);
+  }
+
   function summarizeStatsForPool(pool) {
     const stats = loadStats();
     let seen = 0, ok = 0, ng = 0;
+    let wrongQ = 0;
     for (const q of pool) {
       const id = String(q.id ?? "");
       const s = stats[id];
@@ -211,11 +242,17 @@
       seen += 1;
       ok += (s.ok || 0);
       ng += (s.ng || 0);
+      if ((s.ng || 0) > 0) wrongQ += 1;
     }
-    return { seen, ok, ng };
+    return { seen, ok, ng, wrongQ };
   }
-  function resetStats() {
-    localStorage.removeItem(STATS_KEY);
+
+  // 「間違えた問題だけ」判定：ng>0
+  function isWrongQuestion(q) {
+    const id = String(q.id ?? "");
+    if (!id) return false;
+    const s = loadStats()[id];
+    return !!(s && (s.ng || 0) > 0);
   }
 
   // 苦手重み：不正解率 + 不正解回数 + 最近間違いブースト
@@ -273,8 +310,10 @@
     subject: document.getElementById('subject'),
     unitBig: document.getElementById('unitBig'),
     unitSection: document.getElementById('unitSection'),
+    rangeMode: document.getElementById('rangeMode'),
     numQ: document.getElementById('numQ'),
     typeFilter: document.getElementById('typeFilter'),
+    sessionMode: document.getElementById('sessionMode'),
     weakMode: document.getElementById('weakMode'),
     fxMode: document.getElementById('fxMode'),
     startBtn: document.getElementById('startBtn'),
@@ -408,30 +447,38 @@
     refreshStatsSummary();
   }
 
+  // ★ここが変更点：範囲（節/大単元）を反映して pool を作る
   function currentPool() {
     const subject = els.subject.value;
     const unitBig = els.unitBig.value;
     const unitSection = els.unitSection.value;
     const type = els.typeFilter.value;
+    const rangeMode = els.rangeMode.value; // section | big
 
     let pool = allForSubject.filter(q =>
       String(q.subject||"").toLowerCase() === subject &&
-      String(q.unit_big||"").trim() === unitBig &&
-      String(q.unit_section||"").trim() === unitSection
+      String(q.unit_big||"").trim() === unitBig
     );
+
+    // 節モードのときだけ unit_section を絞る
+    if (rangeMode === "section") {
+      pool = pool.filter(q => String(q.unit_section||"").trim() === unitSection);
+    }
+
     if (type) pool = pool.filter(q => String(q.type||"").toLowerCase() === type);
     return pool;
   }
 
   function refreshStatsSummary() {
     const pool = currentPool();
+    if (pool.length === 0) { els.statsSummary.textContent = ""; return; }
+
     const sum = summarizeStatsForPool(pool);
-    if (pool.length === 0) {
-      els.statsSummary.textContent = "";
-      return;
-    }
+    const rangeLabel = (els.rangeMode.value === "big") ? "大単元全体" : "この節のみ";
+    const wrongOnly = (els.sessionMode.value === "wrongOnly") ? "（間違えた問題だけ）" : "";
+
     els.statsSummary.textContent =
-      `この条件の問題：${pool.length}問 / 学習済み：${sum.seen}問（正解${sum.ok}・不正解${sum.ng}）`;
+      `範囲：${rangeLabel}${wrongOnly} / 対象：${pool.length}問 / 学習済み：${sum.seen}問（正解${sum.ok}・不正解${sum.ng}） / 間違いのある問題：${sum.wrongQ}問`;
   }
 
   function resetQuizUI() {
@@ -603,7 +650,7 @@
   function applyFx(ok) {
     if (!fxOn()) return;
     els.feedback.classList.remove("fx-ok", "fx-ng");
-    void els.feedback.offsetWidth; // reflow
+    void els.feedback.offsetWidth;
     els.feedback.classList.add(ok ? "fx-ok" : "fx-ng");
   }
 
@@ -616,13 +663,9 @@
     results.push({ ok, q: q.question, unit_big: q.unit_big, unit_section: q.unit_section });
     if (ok) correct++;
 
-    // 学習履歴に保存
     recordAttempt(q, ok);
-
-    // 採点済みロック
     lockAfterAnswered(type);
 
-    // 連続正解
     if (ok) {
       streak += 1;
       bestStreak = Math.max(bestStreak, streak);
@@ -715,14 +758,25 @@
     }
   }
 
+  // ★ここが変更点：wrongOnly のとき pool を ng>0 に絞る
   function startQuiz() {
-    const pool = currentPool();
+    let pool = currentPool();
     const n = Math.max(1, Math.min(50, Number(els.numQ.value || 10)));
     const mode = els.weakMode.value;
+    const sessionMode = els.sessionMode.value; // normal | wrongOnly
 
     if (pool.length === 0) {
       alert("この条件の問題がありません。問題を追加するか、条件を変えてください。");
       return;
+    }
+
+    if (sessionMode === "wrongOnly") {
+      const wrongPool = pool.filter(isWrongQuestion);
+      if (wrongPool.length === 0) {
+        alert("この範囲では「間違えた問題」がまだありません。まず通常モードで解いて履歴を作ってください。");
+        return;
+      }
+      pool = wrongPool;
     }
 
     // 苦手優先抽出（重み付き）
@@ -756,9 +810,12 @@
     refreshStatsSummary();
   };
 
+  // ★範囲/モード等を変えたらサマリ更新
   els.unitSection.onchange = refreshStatsSummary;
   els.typeFilter.onchange = refreshStatsSummary;
   els.weakMode.onchange = refreshStatsSummary;
+  els.rangeMode.onchange = refreshStatsSummary;
+  els.sessionMode.onchange = refreshStatsSummary;
 
   els.startBtn.onclick = startQuiz;
 
