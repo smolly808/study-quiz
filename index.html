@@ -544,6 +544,16 @@
       (q.tags ? `<span class="pill">${escapeHtml(q.tags)}</span>` : "");
 
     els.qText.textContent = String(q.question || "");
+    // 画像があれば表示
+if (q.image_url && String(q.image_url).trim() !== "") {
+  els.qText.insertAdjacentHTML(
+    "afterend",
+    `<div class="q-image" style="margin:10px 0;">
+       <img src="${q.image_url}" style="max-width:100%; border-radius:10px;">
+     </div>`
+  );
+}
+
 
     const type = String(q.type || "").toLowerCase();
 
@@ -840,3 +850,4 @@
 
 </body>
 </html>
+
