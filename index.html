@@ -77,6 +77,10 @@
       font-size: 12px;
       color: #666;
     }
+
+    /* ====== クエスト表示 ====== */
+    .quest-title { font-weight: 900; }
+    .quest-done { color:#00c853; font-weight:900; }
   </style>
 </head>
 <body>
@@ -151,6 +155,11 @@
 
   <button id="startBtn">出題開始</button>
   <button class="secondary" id="reloadBtn">単元一覧を再読込</button>
+
+  <!-- ★クエスト -->
+  <button class="secondary" id="questBtn">弱点退治クエスト開始</button>
+  <button class="danger" id="questClearBtn">クエスト削除</button>
+
   <button class="danger" id="resetStatsBtn">学習履歴をリセット（この端末）</button>
 
   <div class="muted" id="status"></div>
@@ -167,7 +176,7 @@
   <div id="meta"></div>
   <h3 id="qText"></h3>
 
-  <!-- 画像はここに挿入 -->
+  <!-- 画像・クエストパネルはここに挿入 -->
 
   <div id="mcqArea" class="choices" style="display:none;"></div>
 
@@ -301,7 +310,7 @@
   }
 
   // =========================
-  // UI
+  // UI（要素取得）
   // =========================
   const els = {
     subject: document.getElementById('subject'),
@@ -316,6 +325,8 @@
     startBtn: document.getElementById('startBtn'),
     reloadBtn: document.getElementById('reloadBtn'),
     resetStatsBtn: document.getElementById('resetStatsBtn'),
+    questBtn: document.getElementById('questBtn'),
+    questClearBtn: document.getElementById('questClearBtn'),
     status: document.getElementById('status'),
     statsSummary: document.getElementById('statsSummary'),
 
@@ -371,6 +382,7 @@
     return u.toString();
   }
 
+  // JSONP（CORS回避）
   function fetchJSONP(url) {
     return new Promise((resolve, reject) => {
       const cbName = "jsonp_cb_" + Math.random().toString(36).slice(2);
@@ -472,14 +484,156 @@
       `範囲：${rangeLabel}${wrongOnly} / 対象：${pool.length}問 / 学習済み：${sum.seen}問（正解${sum.ok}・不正解${sum.ng}） / 間違いのある問題：${sum.wrongQ}問`;
   }
 
-  // ★ここが今回の重要修正：確実に消える削除処理（data-qimg）
+  // =========================
+  // 画像（前の画像が残らない対策：data-qimgで確実に消す）
+  // =========================
   function removeQuestionImage() {
     document.querySelectorAll('[data-qimg="1"]').forEach(e => e.remove());
   }
 
+  function normalizeUrl(u) {
+    return String(u || "").trim();
+  }
+
+  function insertQuestionImage(q) {
+    const url = normalizeUrl(q.image_url);
+    if (!url) return;
+
+    removeQuestionImage(); // 念のため二重防止
+    const caption = String(q.image_caption || "").trim();
+
+    const html =
+      `<div class="q-image-wrap" data-qimg="1">
+         <img class="q-image" src="${escapeHtml(url)}" alt="問題画像" loading="lazy">
+         ${caption ? `<div class="q-image-caption">${escapeHtml(caption)}</div>` : ``}
+       </div>`;
+
+    els.qText.insertAdjacentHTML("afterend", html);
+  }
+
+  // =========================
+  // 弱点退治クエスト（端末内保存）
+  // =========================
+  const QUEST_KEY = "quiz_quest_v1";
+  // quest = { active: true, scope: {subject, unitBig, rangeMode, unitSection, typeFilter}, monsters: [{id, title, hp, maxHp}] }
+
+  function loadQuest() {
+    try { return JSON.parse(localStorage.getItem(QUEST_KEY) || "null"); }
+    catch { return null; }
+  }
+  function saveQuest(q) {
+    localStorage.setItem(QUEST_KEY, JSON.stringify(q));
+  }
+  function clearQuest() {
+    localStorage.removeItem(QUEST_KEY);
+  }
+
+  function buildMonstersFromPool(pool, maxMonsters = 5, hpEach = 3) {
+    const stats = loadStats();
+    const wrongs = pool
+      .filter(q => {
+        const id = String(q.id ?? "");
+        const s = stats[id];
+        return s && (s.ng || 0) > 0;
+      })
+      .map(q => {
+        const id = String(q.id ?? "");
+        const s = stats[id] || {ok:0, ng:0};
+        return {
+          id,
+          title: String(q.question || "").slice(0, 24) + (String(q.question||"").length > 24 ? "…" : ""),
+          ng: Number(s.ng || 0),
+        };
+      })
+      .sort((a,b) => b.ng - a.ng);
+
+    return wrongs.slice(0, maxMonsters).map(x => ({
+      id: x.id,
+      title: x.title || `Q${x.id}`,
+      hp: hpEach,
+      maxHp: hpEach
+    }));
+  }
+
+  function currentScope() {
+    return {
+      subject: els.subject.value,
+      unitBig: els.unitBig.value,
+      unitSection: els.unitSection.value,
+      rangeMode: els.rangeMode.value,
+      typeFilter: els.typeFilter.value || ""
+    };
+  }
+
+  function startQuestFromCurrentPool() {
+    const pool = currentPool();
+    if (pool.length === 0) {
+      alert("この条件の問題がありません。");
+      return false;
+    }
+    const monsters = buildMonstersFromPool(pool, 5, 3);
+    if (monsters.length === 0) {
+      alert("この範囲では、まだ間違えた問題がありません。\nまず通常モードで解いて×を作ってください。");
+      return false;
+    }
+    const quest = { active: true, scope: currentScope(), monsters };
+    saveQuest(quest);
+    return true;
+  }
+
+  function applyQuestDamage(questionId, isCorrect) {
+    const quest = loadQuest();
+    if (!quest || !quest.active) return { changed:false };
+
+    const id = String(questionId ?? "");
+    const m = quest.monsters.find(x => x.id === id);
+    if (!m) return { changed:false };
+
+    if (isCorrect && m.hp > 0) m.hp -= 1;
+
+    const defeated = (m.hp === 0);
+    const allDefeated = quest.monsters.every(x => x.hp === 0);
+
+    if (allDefeated) quest.active = false;
+
+    saveQuest(quest);
+    return { changed:true, defeated, allDefeated, monsterTitle: m.title };
+  }
+
+  function renderQuestPanel() {
+    // 既存パネル削除
+    const existing = document.getElementById("questPanel");
+    if (existing) existing.remove();
+
+    const quest = loadQuest();
+    if (!quest) return;
+
+    const monstersHtml = quest.monsters.map(m => {
+      const hearts = "❤️".repeat(m.hp) + "🤍".repeat(m.maxHp - m.hp);
+      const done = (m.hp === 0) ? `<span class="quest-done"> ✅撃破</span>` : "";
+      return `<li>${escapeHtml(m.title)} ${hearts}${done}</li>`;
+    }).join("");
+
+    const activeText = quest.active ? "進行中" : "クリア！";
+    const html = `
+      <div id="questPanel" class="hint" data-qimg="1" style="margin:10px 0;">
+        <div class="quest-title">弱点退治クエスト：${activeText}</div>
+        <div class="muted">HPを0にすると撃破。全部倒すとクリア！</div>
+        <ol style="margin:8px 0 0 18px;">${monstersHtml}</ol>
+      </div>
+    `;
+    // qTextの直後へ（画像の上に出したい場合は beforebegin にする）
+    els.qText.insertAdjacentHTML("afterend", html);
+  }
+
+  // =========================
+  // 出題UI共通
+  // =========================
   function resetQuizUI() {
     isAnswered = false;
-    removeQuestionImage();
+
+    // 画像とクエスト表示を消す（data-qimg="1" を使う）
+    document.querySelectorAll('[data-qimg="1"]').forEach(e => e.remove());
 
     els.feedback.innerHTML = "";
     show(els.nextBtn, false);
@@ -530,27 +684,6 @@
     return html || `<div class="muted">（模範解答/解説が未入力です）</div>`;
   }
 
-  function normalizeUrl(u) {
-    return String(u || "").trim();
-  }
-
-  // 画像を挿入（あれば） ※data-qimg を付ける
-  function insertQuestionImage(q) {
-    const url = normalizeUrl(q.image_url);
-    if (!url) return;
-
-    removeQuestionImage(); // 念のため二重防止
-    const caption = String(q.image_caption || "").trim();
-
-    const html =
-      `<div class="q-image-wrap" data-qimg="1">
-         <img class="q-image" src="${escapeHtml(url)}" alt="問題画像" loading="lazy">
-         ${caption ? `<div class="q-image-caption">${escapeHtml(caption)}</div>` : ``}
-       </div>`;
-
-    els.qText.insertAdjacentHTML("afterend", html);
-  }
-
   function renderQuestion(q) {
     resetQuizUI();
 
@@ -563,7 +696,9 @@
 
     els.qText.textContent = String(q.question || "");
 
-    // 画像表示（image_urlがあれば）
+    // クエストパネル（あれば表示）
+    renderQuestPanel();
+    // 画像（image_urlがあれば）
     insertQuestionImage(q);
 
     const type = String(q.type || "").toLowerCase();
@@ -667,6 +802,13 @@
     beep(220, 140, "triangle", 0.06);
   }
 
+  // 撃破用ちょい派手
+  function soundDefeat() {
+    beep(988, 90, "sine", 0.09);
+    setTimeout(() => beep(1319, 120, "sine", 0.09), 100);
+    setTimeout(() => beep(1760, 140, "sine", 0.09), 230);
+  }
+
   function applyFx(ok) {
     if (!fxOn()) return;
     els.feedback.classList.remove("fx-ok", "fx-ng");
@@ -684,6 +826,10 @@
     if (ok) correct++;
 
     recordAttempt(q, ok);
+
+    // ★クエストのHP処理（正解でHP-1）
+    const qres = applyQuestDamage(q.id, ok);
+
     lockAfterAnswered(type);
 
     if (ok) {
@@ -691,6 +837,22 @@
       bestStreak = Math.max(bestStreak, streak);
     } else {
       streak = 0;
+    }
+
+    // クエスト表示更新＆撃破/クリア演出
+    if (qres.changed) {
+      renderQuestPanel();
+      if (qres.defeated) {
+        if (fxOn()) { soundDefeat(); vibrate([30, 30, 30, 30, 60]); }
+        els.feedback.insertAdjacentHTML("afterbegin",
+          `<div class="ok">🎯 撃破！「${escapeHtml(qres.monsterTitle)}」</div>`
+        );
+      }
+      if (qres.allDefeated) {
+        els.feedback.insertAdjacentHTML("afterbegin",
+          `<div class="ok">🏆 クエストクリア！！</div>`
+        );
+      }
     }
 
     show(els.nextBtn, true);
@@ -813,7 +975,9 @@
     renderQuestion(quizList[0]);
   }
 
+  // =========================
   // イベント
+  // =========================
   els.reloadBtn.onclick = () => loadCatalog().catch(e => els.status.textContent = "読込失敗：" + e.message);
   els.subject.onchange = () => loadCatalog().catch(e => els.status.textContent = "読込失敗：" + e.message);
 
@@ -834,6 +998,26 @@
 
   els.startBtn.onclick = startQuiz;
 
+  // ★クエスト開始
+  els.questBtn.onclick = () => {
+    const ok = startQuestFromCurrentPool();
+    if (!ok) return;
+
+    // クエストは「間違えた問題だけ」＋「苦手強め」が気持ちいい
+    els.sessionMode.value = "wrongOnly";
+    els.weakMode.value = "strong";
+    refreshStatsSummary();
+
+    alert("クエスト開始！ 間違えた問題（代表5問）を倒そう！");
+  };
+
+  // ★クエスト削除
+  els.questClearBtn.onclick = () => {
+    if (!confirm("クエストを削除しますか？")) return;
+    clearQuest();
+    alert("クエストを削除しました。");
+  };
+
   els.quitBtn.onclick = showResult;
   els.backBtn.onclick = () => {
     show(els.result,false);
@@ -849,9 +1033,12 @@
     alert("リセットしました。");
   };
 
+  // 初期読込
   loadCatalog().catch(e => els.status.textContent = "初期読込失敗：" + e.message);
 </script>
 
 </body>
 </html>
+
+
 
