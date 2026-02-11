@@ -78,6 +78,13 @@
       color: #666;
     }
   </style>
+
+.table { width:100%; border-collapse: collapse; margin-top:8px; }
+.table th, .table td { border-bottom:1px solid #eee; padding:8px; font-size:14px; text-align:left; }
+.table th { background:#fafafa; position: sticky; top: 0; }
+.badge { display:inline-block; padding:2px 8px; border:1px solid #ddd; border-radius:999px; font-size:12px; }
+
+  
 </head>
 <body>
 
@@ -152,6 +159,26 @@
   <button id="startBtn">出題開始</button>
   <button class="secondary" id="reloadBtn">単元一覧を再読込</button>
   <button class="danger" id="resetStatsBtn">学習履歴をリセット（この端末）</button>
+
+  <hr />
+<h3>学習分析</h3>
+
+<button class="secondary" id="analyticsBtn">学習状況を更新して表示</button>
+<div class="muted" id="analyticsStatus"></div>
+
+<div class="card" id="analyticsCard" style="display:none;">
+  <div class="muted">※学習回数＝（正解+不正解）</div>
+
+  <h4>教科別 学習回数</h4>
+  <canvas id="chartSubject" width="360" height="200" style="width:100%; border:1px solid #eee; border-radius:12px;"></canvas>
+
+  <h4 style="margin-top:14px;">この教科の「節」別 学習回数（選択中の科目）</h4>
+  <canvas id="chartSection" width="360" height="220" style="width:100%; border:1px solid #eee; border-radius:12px;"></canvas>
+
+  <h4 style="margin-top:14px;">不得意な節ランキング（不正解が多い順）</h4>
+  <div id="weakSections"></div>
+</div>
+
 
   <div class="muted" id="status"></div>
   <div class="muted" id="statsSummary"></div>
@@ -349,7 +376,189 @@
     review: document.getElementById('review'),
     backBtn: document.getElementById('backBtn'),
   };
+// =========================
+// 学習分析（教科別・節別・不得意節）
+// =========================
+const SUBJECTS = [
+  { key: "history", label: "歴史" },
+  { key: "geography", label: "地理" },
+  { key: "science", label: "理科" },
+  { key: "art", label: "美術" },
+  { key: "music", label: "音楽" },
+  { key: "pe", label: "保健体育" },
+  { key: "tech", label: "技術" },
+];
 
+const analytics = {
+  btn: document.getElementById("analyticsBtn"),
+  status: document.getElementById("analyticsStatus"),
+  card: document.getElementById("analyticsCard"),
+  chartSubject: document.getElementById("chartSubject"),
+  chartSection: document.getElementById("chartSection"),
+  weakSections: document.getElementById("weakSections"),
+};
+
+// 全教科の問題一覧を取得（分析用）
+async function fetchAllQuestionsForAnalytics() {
+  const all = [];
+  for (const s of SUBJECTS) {
+    analytics.status.textContent = `分析用データ取得中…（${s.label}）`;
+    const json = await fetchJSONP(qs({ subject: s.key }));
+    const data = (json && json.data) ? json.data : [];
+    // subject列が無い/揺れる場合に備えて補完
+    for (const q of data) {
+      if (!q.subject) q.subject = s.key;
+    }
+    all.push(...data);
+  }
+  analytics.status.textContent = `分析用データ取得完了（${all.length}問）`;
+  return all;
+}
+
+// 集計
+function buildAnalytics(allQuestions) {
+  const stats = loadStats();
+
+  // 教科別
+  const bySubject = new Map(); // key -> { attempts, wrong }
+  for (const s of SUBJECTS) bySubject.set(s.key, { attempts: 0, wrong: 0 });
+
+  // 節別（教科×節）
+  const bySection = new Map(); // `${subject}||${unit_big}||${unit_section}` -> { attempts, wrong, subject, unit_big, unit_section }
+
+  // id->question（紐付け）
+  const byId = new Map();
+  for (const q of allQuestions) {
+    const id = String(q.id ?? "");
+    if (id) byId.set(id, q);
+  }
+
+  // statsのある問題だけ集計（学習したもの）
+  for (const [id, s] of Object.entries(stats)) {
+    const q = byId.get(String(id));
+    if (!q) continue;
+
+    const subject = String(q.subject || "").toLowerCase();
+    const attempts = Number(s.ok || 0) + Number(s.ng || 0);
+    const wrong = Number(s.ng || 0);
+
+    if (!bySubject.has(subject)) bySubject.set(subject, { attempts: 0, wrong: 0 });
+    bySubject.get(subject).attempts += attempts;
+    bySubject.get(subject).wrong += wrong;
+
+    const key = `${subject}||${String(q.unit_big||"")}||${String(q.unit_section||"")}`;
+    if (!bySection.has(key)) {
+      bySection.set(key, {
+        subject,
+        unit_big: String(q.unit_big||""),
+        unit_section: String(q.unit_section||""),
+        attempts: 0,
+        wrong: 0
+      });
+    }
+    const sec = bySection.get(key);
+    sec.attempts += attempts;
+    sec.wrong += wrong;
+  }
+
+  return { bySubject, bySection };
+}
+
+// 超シンプル棒グラフ（canvas）
+function drawBarChart(canvas, items, titleRightText = "") {
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // 背景
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, W, H);
+
+  const pad = 30;
+  const innerW = W - pad*2;
+  const innerH = H - pad*2;
+
+  // タイトル右上
+  ctx.fillStyle = "#666";
+  ctx.font = "12px system-ui";
+  if (titleRightText) ctx.fillText(titleRightText, W - pad - ctx.measureText(titleRightText).width, 18);
+
+  const maxVal = Math.max(1, ...items.map(x => x.value));
+  const barW = items.length ? (innerW / items.length) : innerW;
+
+  // 軸
+  ctx.strokeStyle = "#eee";
+  ctx.beginPath();
+  ctx.moveTo(pad, H - pad);
+  ctx.lineTo(W - pad, H - pad);
+  ctx.stroke();
+
+  // バー
+  items.forEach((it, i) => {
+    const x = pad + i * barW + 6;
+    const w = Math.max(6, barW - 12);
+    const h = Math.round((it.value / maxVal) * (innerH - 20));
+    const y = (H - pad) - h;
+
+    // バー色（固定しない方針にしたい場合は灰で統一）
+    ctx.fillStyle = "#111";
+    ctx.globalAlpha = 0.85;
+    ctx.fillRect(x, y, w, h);
+    ctx.globalAlpha = 1;
+
+    // 値
+    ctx.fillStyle = "#111";
+    ctx.font = "12px system-ui";
+    const vText = String(it.value);
+    ctx.fillText(vText, x, y - 4);
+
+    // ラベル（短く）
+    ctx.fillStyle = "#666";
+    ctx.font = "11px system-ui";
+    const label = it.label.length > 6 ? it.label.slice(0, 6) + "…" : it.label;
+    ctx.fillText(label, x, H - 12);
+  });
+}
+
+function renderWeakSectionsTable(rows) {
+  if (rows.length === 0) {
+    analytics.weakSections.innerHTML = `<div class="muted">まだ学習履歴がありません（問題を解くと表示されます）。</div>`;
+    return;
+  }
+
+  const html = `
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>教科</th>
+          <th>大単元 / 節</th>
+          <th>学習回数</th>
+          <th>不正解</th>
+          <th>正答率</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((r, i) => {
+          const acc = r.attempts > 0 ? Math.round((1 - (r.wrong / r.attempts)) * 100) : 0;
+          return `
+            <tr>
+              <td><span class="badge">${i+1}</span></td>
+              <td>${escapeHtml(r.subjectLabel)}</td>
+              <td>${escapeHtml(r.unit_big)} / ${escapeHtml(r.unit_section || "（未設定）")}</td>
+              <td>${r.attempts}</td>
+              <td>${r.wrong}</td>
+              <td>${acc}%</td>
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+  analytics.weakSections.innerHTML = html;
+}
+
+  
   let allForSubject = [];
   let quizList = [];
   let idx = 0;
@@ -849,8 +1058,57 @@
     alert("リセットしました。");
   };
 
+  analytics.btn.onclick = async () => {
+  try {
+    analytics.card.style.display = "none";
+    analytics.status.textContent = "分析を準備しています…";
+
+    const allQ = await fetchAllQuestionsForAnalytics();
+    const { bySubject, bySection } = buildAnalytics(allQ);
+
+    // 教科別（棒）
+    const subjectItems = SUBJECTS.map(s => ({
+      label: s.label,
+      value: (bySubject.get(s.key)?.attempts || 0)
+    }));
+    drawBarChart(analytics.chartSubject, subjectItems, "教科別");
+
+    // 節別（選択中の教科のみ）
+    const curSubject = els.subject.value;
+    const sectionItemsRaw = Array.from(bySection.values())
+      .filter(x => x.subject === curSubject)
+      .sort((a,b) => b.attempts - a.attempts)
+      .slice(0, 12); // 多すぎると見えないので上位12
+
+    const sectionItems = sectionItemsRaw.map(x => ({
+      label: x.unit_section || "未設定",
+      value: x.attempts
+    }));
+    drawBarChart(analytics.chartSection, sectionItems, "節別(上位)");
+
+    // 不得意節ランキング：不正解が多い順（上位20）
+    const weakRows = Array.from(bySection.values())
+      .filter(x => x.wrong > 0)
+      .sort((a,b) => b.wrong - a.wrong || b.attempts - a.attempts)
+      .slice(0, 20)
+      .map(x => ({
+        ...x,
+        subjectLabel: (SUBJECTS.find(s => s.key === x.subject)?.label || x.subject)
+      }));
+
+    renderWeakSectionsTable(weakRows);
+
+    analytics.card.style.display = "";
+    analytics.status.textContent = "分析を更新しました。";
+  } catch (e) {
+    analytics.status.textContent = "分析に失敗しました：" + (e?.message || e);
+  }
+};
+
+
   loadCatalog().catch(e => els.status.textContent = "初期読込失敗：" + e.message);
 </script>
 
 </body>
 </html>
+
