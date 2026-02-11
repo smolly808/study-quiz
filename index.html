@@ -999,17 +999,18 @@
   els.startBtn.onclick = startQuiz;
 
   // ★クエスト開始
-  els.questBtn.onclick = () => {
-    const ok = startQuestFromCurrentPool();
-    if (!ok) return;
+els.questBtn.onclick = () => {
+  const ok = startQuestFromCurrentPool();
+  if (!ok) return;
 
-    // クエストは「間違えた問題だけ」＋「苦手強め」が気持ちいい
-    els.sessionMode.value = "wrongOnly";
-    els.weakMode.value = "strong";
-    refreshStatsSummary();
+  // クエストは「間違えた問題だけ」＋「苦手強め」
+  els.sessionMode.value = "wrongOnly";
+  els.weakMode.value = "strong";
+  refreshStatsSummary();
 
-    alert("クエスト開始！ 間違えた問題（代表5問）を倒そう！");
-  };
+  // ここがポイント：そのまま出題開始まで進める
+  startQuiz();
+};
 
   // ★クエスト削除
   els.questClearBtn.onclick = () => {
@@ -1039,6 +1040,7 @@
 
 </body>
 </html>
+
 
 
 
