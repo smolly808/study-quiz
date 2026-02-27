@@ -11,278 +11,314 @@
     select, input[type="number"], textarea, button {
       width: 100%; font-size: 16px; padding: 10px; border-radius: 10px; border: 1px solid #ccc;
     }
-    textarea { resize: vertical; }
-    button { border: none; background: #111; color: #fff; margin-top: 10px; }
-    button.secondary { background: #666; }
-    button.danger { background:#b00020; }
-    button:disabled { background:#ccc; color:#777; }
-    .row { display:flex; gap:10px; }
-    .row > * { flex:1; }
+    textarea { resize: vertical; min-height: 110px; }
+    button { cursor: pointer; border: 0; background: #111; color: #fff; font-weight: 700; }
+    button.secondary { background:#eee; color:#111; border:1px solid #ccc; }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .muted { color:#666; font-size: 13px; }
-    .pill { display:inline-block; padding: 2px 8px; border:1px solid #ddd; border-radius: 999px; font-size: 12px; margin-right:6px; }
-    .choices button { background:#f3f3f3; color:#111; border:1px solid #ddd; margin: 8px 0; text-align:left; }
-    hr { border:none; border-top:1px solid #eee; margin:12px 0; }
-
-    /* ====== 正解/不正解（大きく・目立つ） ====== */
-    .ok {
-      color: #00c853;
-      font-weight: 900;
-      font-size: 34px;
-      letter-spacing: 0.5px;
-      text-shadow: 0 0 14px rgba(0, 200, 83, 0.35);
-    }
-    .ng {
-      color: #ff1744;
-      font-weight: 900;
-      font-size: 26px;
-      letter-spacing: 0.5px;
-      text-shadow: 0 0 12px rgba(255, 23, 68, 0.25);
-    }
-
-    /* ====== 演出（光る・ポップ） ====== */
-    @keyframes pop {
-      0%   { transform: scale(0.9); opacity: 0.3; }
-      60%  { transform: scale(1.06); opacity: 1; }
-      100% { transform: scale(1.0); }
-    }
-    @keyframes glowOk {
-      0% { box-shadow: 0 0 0 rgba(0,200,83,0.0); }
-      40% { box-shadow: 0 0 22px rgba(0,200,83,0.35); }
-      100% { box-shadow: 0 0 0 rgba(0,200,83,0.0); }
-    }
-    @keyframes glowNg {
-      0% { box-shadow: 0 0 0 rgba(255,23,68,0.0); }
-      40% { box-shadow: 0 0 22px rgba(255,23,68,0.28); }
-      100% { box-shadow: 0 0 0 rgba(255,23,68,0.0); }
-    }
-    .fx-ok { animation: pop 420ms ease-out, glowOk 700ms ease-out; border-radius: 12px; padding: 6px 10px; }
-    .fx-ng { animation: pop 420ms ease-out, glowNg 700ms ease-out; border-radius: 12px; padding: 6px 10px; }
-
-    /* ====== 連続正解 ====== */
-    .streak { margin-top: 6px; font-weight: 800; font-size: 18px; }
-    .streak .fire { filter: drop-shadow(0 0 10px rgba(255,165,0,0.35)); }
-
-    .hint { background:#fafafa; border:1px dashed #ddd; padding:10px; border-radius:10px; margin-top:10px; }
-
-    /* ====== 画像表示 ====== */
-    .q-image-wrap { margin: 10px 0; }
-    .q-image {
-      max-width: 100%;
-      border-radius: 12px;
-      border: 1px solid #eee;
-      display: block;
-    }
-    .q-image-caption {
-      margin-top: 6px;
-      font-size: 12px;
-      color: #666;
-    }
-.table { width:100%; border-collapse: collapse; margin-top:8px; }
-.table th, .table td { border-bottom:1px solid #eee; padding:8px; font-size:14px; text-align:left; }
-.table th { background:#fafafa; position: sticky; top: 0; }
-.badge { display:inline-block; padding:2px 8px; border:1px solid #ddd; border-radius:999px; font-size:12px; }
-    
+    .ok { color:#0a7; font-weight:700; }
+    .ng { color:#c33; font-weight:700; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#f1f1f1; margin-right:6px; font-size:12px; }
+    .hidden { display:none !important; }
+    .qbox { font-size: 20px; font-weight: 800; margin: 8px 0 10px; }
+    .choices { display:grid; gap: 8px; margin: 10px 0; }
+    .choiceBtn { background:#f7f7f7; color:#111; border:1px solid #ddd; text-align:left; }
+    .choiceBtn.correct { border-color:#0a7; background:#eafff6; }
+    .choiceBtn.wrong { border-color:#c33; background:#fff0f0; }
+    .bar { display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top:8px; }
+    .kpi { font-size:13px; color:#444; }
+    .fxFlash { animation: flash 0.25s ease-in-out 2; }
+    @keyframes flash { 0%{transform:scale(1);} 50%{transform:scale(1.02);} 100%{transform:scale(1);} }
   </style>
-
-
-
-  
 </head>
 <body>
 
-<h2>こっちの！</h2>
-<div class="muted">苦手ほど出題頻度が上がります（端末内保存）。</div>
+  <div id="setup" class="card">
+    <h2 style="margin:0 0 8px;">学習クイズ</h2>
+    <div id="status" class="muted">読み込み中...</div>
 
-<!-- 設定 -->
-<div class="card" id="setup">
-  <label>科目</label>
-  <select id="subject">
-    <option value="history">歴史</option>
-    <option value="geography">地理</option>
-    <option value="science">理科</option>
-    <option value="art">美術</option>
-    <option value="music">音楽</option>
-    <option value="pe">保健体育</option>
-    <option value="tech">技術</option>
-  </select>
+    <label>教科</label>
+    <select id="subject">
+      <option value="sci" selected>理科</option>
+      <option value="soc">社会</option>
+      <option value="eng">英語</option>
+      <option value="math">数学</option>
+      <option value="jpn">国語</option>
+      <option value="pe">保健体育</option>
+      <option value="tech">技術</option>
+    </select>
 
-  <div class="row">
-    <div>
-      <label>大単元</label>
-      <select id="unitBig"></select>
+    <div class="row">
+      <div>
+        <label>大単元</label>
+        <select id="unitBig"></select>
+      </div>
+      <div>
+        <label>節</label>
+        <select id="unitSection"></select>
+      </div>
     </div>
-    <div>
-      <label>節</label>
-      <select id="unitSection"></select>
+
+    <label>出題範囲</label>
+    <select id="rangeMode">
+      <option value="section" selected>この節のみ</option>
+      <option value="big">大単元全体（節をまたぐ）</option>
+    </select>
+
+    <div class="row">
+      <div>
+        <label>問題数</label>
+        <input id="numQ" type="number" min="1" max="50" value="10" />
+      </div>
+      <div>
+        <label>タイプ</label>
+        <select id="typeFilter">
+          <option value="">すべて</option>
+          <option value="mcq">4択</option>
+          <option value="keyword">キーワード</option>
+          <option value="self">自己採点</option>
+        </select>
+      </div>
     </div>
-  </div>
 
-  <label>出題範囲</label>
-  <select id="rangeMode">
-    <option value="section" selected>この節のみ</option>
-    <option value="big">大単元全体（節をまたぐ）</option>
-  </select>
+    <label>出題モード</label>
+    <select id="sessionMode">
+      <option value="normal" selected>通常</option>
+      <option value="wrongOnly">間違えた問題だけ</option>
+    </select>
 
-  <div class="row">
-    <div>
-      <label>問題数</label>
-      <input id="numQ" type="number" min="1" max="50" value="10" />
+    <label>出題方式</label>
+    <select id="deliveryMode">
+      <option value="random" selected>ランダム（グループは順番固定で連続）</option>
+      <option value="sequential">順番に網羅（指定範囲を先頭から）</option>
+    </select>
+
+    <div class="row">
+      <div>
+        <label>順番範囲（seq）開始</label>
+        <input id="seqFrom" type="number" min="1" placeholder="例：1" />
+      </div>
+      <div>
+        <label>順番範囲（seq）終了</label>
+        <input id="seqTo" type="number" min="1" placeholder="例：50" />
+      </div>
     </div>
-    <div>
-      <label>タイプ</label>
-      <select id="typeFilter">
-        <option value="">すべて</option>
-        <option value="mcq">4択</option>
-        <option value="keyword">キーワード</option>
-        <option value="self">自己採点</option>
-      </select>
-    </div>
-  </div>
 
-  <label>出題モード</label>
-  <select id="sessionMode">
-    <option value="normal" selected>通常</option>
-    <option value="wrongOnly">間違えた問題だけ</option>
-    <option value="sequentialExceptGroups">指定グループ以外を順番に全網羅</option>
-  </select>
+    <label>苦手優先</label>
+    <select id="weakMode">
+      <option value="off">OFF（完全ランダム）</option>
+      <option value="mid" selected>ON（標準）</option>
+      <option value="strong">ON（強め）</option>
+    </select>
 
-  <label>順番固定/除外グループ（カンマ区切り）</label>
-  <input id="orderedGroups" type="text" placeholder="例: 年表A, 重要語句" />
-  <div class="muted">※この欄のグループ名は、通常モードでは「順番固定」、全網羅モードでは「除外対象」として使います。</div>
+    <label>演出</label>
+    <select id="fxMode">
+      <option value="on" selected>ON（効果音/光る/バイブ/連続正解）</option>
+      <option value="off">OFF</option>
+    </select>
 
+    <button id="startBtn">出題開始</button>
+    <button class="secondary" id="reloadBtn" style="margin-top:8px;">最新の問題表を読み直す</button>
 
-  <label>苦手優先</label>
-  <select id="weakMode">
-    <option value="off">OFF（完全ランダム）</option>
-    <option value="mid" selected>ON（標準）</option>
-    <option value="strong">ON（強め）</option>
-  </select>
-
-  <label>演出</label>
-  <select id="fxMode">
-    <option value="on" selected>ON（効果音/光る/バイブ/連続正解）</option>
-    <option value="off">OFF</option>
-  </select>
-
-  <button id="startBtn">出題開始</button>
-  <button class="secondary" id="reloadBtn">単元一覧を再読込</button>
-  <button class="danger" id="resetStatsBtn">学習履歴をリセット（この端末）</button>
-
-  <hr />
-<h3>学習分析</h3>
-
-<button class="secondary" id="analyticsBtn">学習状況を更新して表示</button>
-<div class="muted" id="analyticsStatus"></div>
-
-<div class="card" id="analyticsCard" style="display:none;">
-  <div class="muted">※学習回数＝（正解+不正解）</div>
-
-  <h4>教科別 学習回数</h4>
-  <canvas id="chartSubject" width="360" height="200" style="width:100%; border:1px solid #eee; border-radius:12px;"></canvas>
-
-  <h4 style="margin-top:14px;">この教科の「節」別 学習回数（選択中の科目）</h4>
-  <canvas id="chartSection" width="360" height="220" style="width:100%; border:1px solid #eee; border-radius:12px;"></canvas>
-
-  <h4 style="margin-top:14px;">不得意な節ランキング（不正解が多い順）</h4>
-  <div id="weakSections"></div>
-</div>
-
-
-  <div class="muted" id="status"></div>
-  <div class="muted" id="statsSummary"></div>
-
-  <div class="hint muted">
-    「間違えた問題だけ」モードは、通常で解いて不正解履歴（×）を作ると効きます。
-  </div>
-</div>
-
-<!-- 出題 -->
-<div class="card" id="quiz" style="display:none;">
-  <div id="progress" class="muted"></div>
-  <div id="meta"></div>
-  <h3 id="qText"></h3>
-
-  <!-- 画像はここに挿入 -->
-
-  <div id="mcqArea" class="choices" style="display:none;"></div>
-
-  <div id="kwArea" style="display:none;">
-    <label>回答（文章でOK）</label>
-    <textarea id="kwInput" rows="3" placeholder="ここに入力"></textarea>
-    <button id="kwCheckBtn" disabled>採点する</button>
-    <div class="muted">※入力が空のときは採点できません</div>
-  </div>
-
-  <div id="selfArea" style="display:none;">
-    <label>回答（任意）</label>
-    <textarea id="selfInput" rows="3" placeholder="ここに入力（任意）"></textarea>
-    <button id="selfRevealBtn">模範解答・解説を見る</button>
-    <div id="selfReveal" style="display:none; margin-top:10px;"></div>
-    <div id="selfMark" style="display:none;">
-      <button id="selfOkBtn">○（正解）</button>
-      <button class="secondary" id="selfNgBtn">×（不正解）</button>
+    <div class="card" style="margin-top:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <div>
+          <div style="font-weight:800;">成績（このブラウザ）</div>
+          <div id="statsSummary" class="muted">-</div>
+        </div>
+        <button class="secondary" id="resetStatsBtn" style="width:auto;">成績リセット</button>
+      </div>
+      <div class="muted" style="margin-top:8px;">
+        ※ 成績はこの端末のブラウザ（localStorage）に保存されます。
+      </div>
     </div>
   </div>
 
-  <hr />
-  <div id="feedback"></div>
+  <div id="quiz" class="card hidden">
+    <div class="bar">
+      <div class="kpi">
+        <span class="pill" id="kpiUnitBig">-</span>
+        <span class="pill" id="kpiUnitSection">-</span>
+        <span class="pill" id="kpiType">-</span>
+      </div>
+      <div class="kpi">
+        <span id="kpiProgress">1 / 10</span>
+        ・
+        <span id="kpiScore">正解 0</span>
+        ・
+        <span id="kpiStreak">連続 0</span>
+      </div>
+    </div>
 
-  <button class="secondary" id="nextBtn" style="display:none;">次の問題</button>
-  <button class="secondary" id="quitBtn">やめる（結果へ）</button>
-</div>
+    <div id="qtext" class="qbox">-</div>
 
-<!-- 結果 -->
-<div class="card" id="result" style="display:none;">
-  <h3>結果</h3>
-  <div id="scoreLine"></div>
-  <div id="review"></div>
-  <button id="backBtn">トップへ戻る</button>
-</div>
+    <div id="mcq" class="hidden">
+      <div id="choices" class="choices"></div>
+      <button class="secondary" id="skipBtn">分からない（不正解で次へ）</button>
+    </div>
+
+    <div id="keyword" class="hidden">
+      <label>答え（キーワード）</label>
+      <input id="keywordInput" type="text" placeholder="入力して判定" />
+      <button id="keywordCheckBtn" style="margin-top:8px;">判定</button>
+      <div id="keywordHint" class="muted" style="margin-top:8px;"></div>
+    </div>
+
+    <div id="self" class="hidden">
+      <label>自己採点（自分で答えを見て判断）</label>
+      <textarea id="selfAnswer" placeholder="ここにメモしてもOK（保存されません）"></textarea>
+      <div class="row" style="margin-top:8px;">
+        <button id="selfOkBtn">正解</button>
+        <button class="secondary" id="selfNgBtn">不正解</button>
+      </div>
+      <div id="selfReveal" class="muted" style="margin-top:8px;"></div>
+    </div>
+
+    <div style="margin-top:12px;">
+      <button class="secondary" id="quitBtn">中断して戻る</button>
+    </div>
+  </div>
+
+  <div id="result" class="card hidden">
+    <h3 style="margin:0 0 6px;">結果</h3>
+    <div id="resultSummary"></div>
+    <div id="review" style="margin-top:10px;"></div>
+    <div style="margin-top:12px;">
+      <button id="backBtn">設定へ戻る</button>
+    </div>
+  </div>
 
 <script>
-  // ★あなたのexec URLに置き換え
-  const API_BASE = "https://script.google.com/macros/s/AKfycbyVNfQjqvEJZAKv13SOULHAqLUk2WZEFRdotZBL_aRPQDYXdklTcSojvDrMndnI3qdGsw/exec";
+(() => {
+  // =========================
+  // 設定
+  // =========================
+  // ↓あなたの Apps Script Webアプリ URL（/exec）に差し替えてください
+  const API_URL = "PASTE_YOUR_APPS_SCRIPT_EXEC_URL_HERE";
+
+  const STORAGE_KEY = "quiz_stats_v1";
 
   // =========================
-  // 学習履歴（端末内）
+  // 取得要素
   // =========================
-  const STATS_KEY = "quiz_stats_v1"; // { [id]: {ok, ng, lastAt} }
+  const els = {
+    subject: document.getElementById('subject'),
+    unitBig: document.getElementById('unitBig'),
+    unitSection: document.getElementById('unitSection'),
+    rangeMode: document.getElementById('rangeMode'),
+    numQ: document.getElementById('numQ'),
+    typeFilter: document.getElementById('typeFilter'),
+    sessionMode: document.getElementById('sessionMode'),
+    weakMode: document.getElementById('weakMode'),
+    deliveryMode: document.getElementById('deliveryMode'),
+    seqFrom: document.getElementById('seqFrom'),
+    seqTo: document.getElementById('seqTo'),
+    fxMode: document.getElementById('fxMode'),
+    startBtn: document.getElementById('startBtn'),
+    reloadBtn: document.getElementById('reloadBtn'),
+    resetStatsBtn: document.getElementById('resetStatsBtn'),
+    status: document.getElementById('status'),
+    statsSummary: document.getElementById('statsSummary'),
+
+    setup: document.getElementById('setup'),
+    quiz: document.getElementById('quiz'),
+    result: document.getElementById('result'),
+
+    kpiUnitBig: document.getElementById('kpiUnitBig'),
+    kpiUnitSection: document.getElementById('kpiUnitSection'),
+    kpiType: document.getElementById('kpiType'),
+    kpiProgress: document.getElementById('kpiProgress'),
+    kpiScore: document.getElementById('kpiScore'),
+    kpiStreak: document.getElementById('kpiStreak'),
+
+    qtext: document.getElementById('qtext'),
+
+    mcq: document.getElementById('mcq'),
+    choices: document.getElementById('choices'),
+    skipBtn: document.getElementById('skipBtn'),
+
+    keyword: document.getElementById('keyword'),
+    keywordInput: document.getElementById('keywordInput'),
+    keywordCheckBtn: document.getElementById('keywordCheckBtn'),
+    keywordHint: document.getElementById('keywordHint'),
+
+    self: document.getElementById('self'),
+    selfAnswer: document.getElementById('selfAnswer'),
+    selfOkBtn: document.getElementById('selfOkBtn'),
+    selfNgBtn: document.getElementById('selfNgBtn'),
+    selfReveal: document.getElementById('selfReveal'),
+
+    quitBtn: document.getElementById('quitBtn'),
+    backBtn: document.getElementById('backBtn'),
+
+    resultSummary: document.getElementById('resultSummary'),
+    review: document.getElementById('review'),
+  };
+
+  // =========================
+  // 状態
+  // =========================
+  let catalog = [];         // 現在教科の全問題
+  let allForSubject = [];   // 同上
+  let quizList = [];        // 今回の出題リスト
+  let idx = 0;
+  let correct = 0;
+  let results = [];
+  let streak = 0;
+  let bestStreak = 0;
+
+  // =========================
+  // ユーティリティ
+  // =========================
+  const show = (el, on) => el.classList.toggle('hidden', !on);
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, c => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+    }[c]));
+  }
+
+  function nowMs() { return Date.now(); }
 
   function loadStats() {
-    try { return JSON.parse(localStorage.getItem(STATS_KEY) || "{}"); }
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); }
     catch { return {}; }
   }
+
   function saveStats(stats) {
-    localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
+    renderStatsSummary();
   }
-  function recordAttempt(q, ok) {
+
+  function renderStatsSummary() {
+    const stats = loadStats();
+    let ok = 0, ng = 0;
+    Object.values(stats).forEach(s => {
+      ok += Number(s.ok || 0);
+      ng += Number(s.ng || 0);
+    });
+    const total = ok + ng;
+    const rate = total ? Math.round(ok * 1000 / total) / 10 : 0;
+    els.statsSummary.textContent = `回答 ${total}回（正解 ${ok} / 不正解 ${ng}） 正答率 ${rate}%`;
+  }
+
+  function resetStats() {
+    if (!confirm("このブラウザの成績をリセットしますか？")) return;
+    localStorage.removeItem(STORAGE_KEY);
+    renderStatsSummary();
+    alert("成績をリセットしました。");
+  }
+
+  function recordResult(q, ok) {
     const id = String(q.id ?? "");
     if (!id) return;
     const stats = loadStats();
-    const cur = stats[id] || { ok: 0, ng: 0, lastAt: 0 };
-    if (ok) cur.ok += 1; else cur.ng += 1;
-    cur.lastAt = Date.now();
-    stats[id] = cur;
+    const s = stats[id] || { ok: 0, ng: 0, lastAt: 0 };
+    if (ok) s.ok = (s.ok || 0) + 1;
+    else s.ng = (s.ng || 0) + 1;
+    s.lastAt = nowMs();
+    stats[id] = s;
     saveStats(stats);
-  }
-  function resetStats() {
-    localStorage.removeItem(STATS_KEY);
-  }
-
-  function summarizeStatsForPool(pool) {
-    const stats = loadStats();
-    let seen = 0, ok = 0, ng = 0;
-    let wrongQ = 0;
-    for (const q of pool) {
-      const id = String(q.id ?? "");
-      const s = stats[id];
-      if (!s) continue;
-      seen += 1;
-      ok += (s.ok || 0);
-      ng += (s.ng || 0);
-      if ((s.ng || 0) > 0) wrongQ += 1;
-    }
-    return { seen, ok, ng, wrongQ };
   }
 
   function isWrongQuestion(q) {
@@ -302,16 +338,13 @@
     const ok = Number(s.ok || 0);
     const ng = Number(s.ng || 0);
     const total = ok + ng;
+    const wrongRate = total ? (ng / total) : 0.4; // 初回は少し高め
+    const ageDays = s.lastAt ? ( (nowMs() - s.lastAt) / (1000*60*60*24) ) : 999;
 
-    const wrongRate = total > 0 ? (ng / total) : 0;
-
-    const recentHours = (Date.now() - (s.lastAt || 0)) / 36e5;
-    const recentBoost = (ng > 0 && recentHours <= 24) ? 0.4 : 0;
-
-    const k = (mode === "strong") ? 3.0 : 2.0;
-    const b = (mode === "strong") ? 1.3 : 1.1;
-
-    const w = 1 + k * wrongRate + b * Math.min(5, ng) / 5 + recentBoost;
+    // 最近やってないほど重く、間違えやすいほど重く
+    let w = 1;
+    w *= (1 + wrongRate * (mode === "strong" ? 3.0 : 1.8));
+    w *= Math.min(2.0, 1 + ageDays / (mode === "strong" ? 3 : 6));
     return Math.max(0.2, w);
   }
 
@@ -336,720 +369,378 @@
   }
 
   // =========================
-  // UI
+  // グループ対応（group_id / group_order）
+  // - ランダム抽選でも、グループは必ず連続＆順番固定で出題する
+  // - sequential（順番に網羅）でも、グループは連結して順番固定
   // =========================
-  const els = {
-    subject: document.getElementById('subject'),
-    unitBig: document.getElementById('unitBig'),
-    unitSection: document.getElementById('unitSection'),
-    rangeMode: document.getElementById('rangeMode'),
-    numQ: document.getElementById('numQ'),
-    typeFilter: document.getElementById('typeFilter'),
-    sessionMode: document.getElementById('sessionMode'),
-    orderedGroups: document.getElementById('orderedGroups'),
-    weakMode: document.getElementById('weakMode'),
+  function toNumberOrFallback(v, fb) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fb;
+  }
 
-    fxMode: document.getElementById('fxMode'),
-    startBtn: document.getElementById('startBtn'),
-    reloadBtn: document.getElementById('reloadBtn'),
-    resetStatsBtn: document.getElementById('resetStatsBtn'),
-    status: document.getElementById('status'),
-    statsSummary: document.getElementById('statsSummary'),
+  function filterBySeqRange(pool, fromSeq, toSeq) {
+    const f = Number(fromSeq);
+    const t = Number(toSeq);
+    const hasF = Number.isFinite(f) && f > 0;
+    const hasT = Number.isFinite(t) && t > 0;
+    if (!hasF && !hasT) return pool;
 
-    setup: document.getElementById('setup'),
-    quiz: document.getElementById('quiz'),
-    result: document.getElementById('result'),
+    return pool.filter(q => {
+      const s = Number(q.seq);
+      if (!Number.isFinite(s)) return false; // seq未設定は除外（含めたいなら true に変更）
+      if (hasF && s < f) return false;
+      if (hasT && s > t) return false;
+      return true;
+    });
+  }
 
-    progress: document.getElementById('progress'),
-    meta: document.getElementById('meta'),
-    qText: document.getElementById('qText'),
+  function buildUnitsFromPool(pool, weakMode) {
+    const groupMap = new Map(); // group_id -> [q...]
+    const singles = [];
 
-    mcqArea: document.getElementById('mcqArea'),
-
-    kwArea: document.getElementById('kwArea'),
-    kwInput: document.getElementById('kwInput'),
-    kwCheckBtn: document.getElementById('kwCheckBtn'),
-
-    selfArea: document.getElementById('selfArea'),
-    selfInput: document.getElementById('selfInput'),
-    selfRevealBtn: document.getElementById('selfRevealBtn'),
-    selfReveal: document.getElementById('selfReveal'),
-    selfMark: document.getElementById('selfMark'),
-    selfOkBtn: document.getElementById('selfOkBtn'),
-    selfNgBtn: document.getElementById('selfNgBtn'),
-
-    feedback: document.getElementById('feedback'),
-    nextBtn: document.getElementById('nextBtn'),
-    quitBtn: document.getElementById('quitBtn'),
-
-    scoreLine: document.getElementById('scoreLine'),
-    review: document.getElementById('review'),
-    backBtn: document.getElementById('backBtn'),
-  };
-// =========================
-// 学習分析（教科別・節別・不得意節）
-// =========================
-const SUBJECTS = [
-  { key: "history", label: "歴史" },
-  { key: "geography", label: "地理" },
-  { key: "science", label: "理科" },
-  { key: "art", label: "美術" },
-  { key: "music", label: "音楽" },
-  { key: "pe", label: "保健体育" },
-  { key: "tech", label: "技術" },
-];
-
-const analytics = {
-  btn: document.getElementById("analyticsBtn"),
-  status: document.getElementById("analyticsStatus"),
-  card: document.getElementById("analyticsCard"),
-  chartSubject: document.getElementById("chartSubject"),
-  chartSection: document.getElementById("chartSection"),
-  weakSections: document.getElementById("weakSections"),
-};
-
-// 全教科の問題一覧を取得（分析用）
-async function fetchAllQuestionsForAnalytics() {
-  const all = [];
-  for (const s of SUBJECTS) {
-    analytics.status.textContent = `分析用データ取得中…（${s.label}）`;
-    const json = await fetchJSONP(qs({ subject: s.key }));
-    const data = (json && json.data) ? json.data : [];
-    // subject列が無い/揺れる場合に備えて補完
-    for (const q of data) {
-      if (!q.subject) q.subject = s.key;
+    for (const q of pool) {
+      const gid = String(q.group_id || "").trim();
+      if (!gid) {
+        singles.push(q);
+      } else {
+        if (!groupMap.has(gid)) groupMap.set(gid, []);
+        groupMap.get(gid).push(q);
+      }
     }
-    all.push(...data);
-  }
-  analytics.status.textContent = `分析用データ取得完了（${all.length}問）`;
-  return all;
-}
 
-// 集計
-function buildAnalytics(allQuestions) {
-  const stats = loadStats();
+    const units = [];
 
-  // 教科別
-  const bySubject = new Map(); // key -> { attempts, wrong }
-  for (const s of SUBJECTS) bySubject.set(s.key, { attempts: 0, wrong: 0 });
+    // グループユニット（group_orderで並ぶ）
+    for (const [gid, arr] of groupMap.entries()) {
+      arr.sort((a, b) => toNumberOrFallback(a.group_order, 999999) - toNumberOrFallback(b.group_order, 999999));
 
-  // 節別（教科×節）
-  const bySection = new Map(); // `${subject}||${unit_big}||${unit_section}` -> { attempts, wrong, subject, unit_big, unit_section }
+      // 苦手優先：グループは「中で一番重い（出やすい）」を採用（好みに応じて平均でもOK）
+      const w = Math.max(...arr.map(q => weightForQuestion(q, weakMode)));
 
-  // id->question（紐付け）
-  const byId = new Map();
-  for (const q of allQuestions) {
-    const id = String(q.id ?? "");
-    if (id) byId.set(id, q);
-  }
-
-  // statsのある問題だけ集計（学習したもの）
-  for (const [id, s] of Object.entries(stats)) {
-    const q = byId.get(String(id));
-    if (!q) continue;
-
-    const subject = String(q.subject || "").toLowerCase();
-    const attempts = Number(s.ok || 0) + Number(s.ng || 0);
-    const wrong = Number(s.ng || 0);
-
-    if (!bySubject.has(subject)) bySubject.set(subject, { attempts: 0, wrong: 0 });
-    bySubject.get(subject).attempts += attempts;
-    bySubject.get(subject).wrong += wrong;
-
-    const key = `${subject}||${String(q.unit_big||"")}||${String(q.unit_section||"")}`;
-    if (!bySection.has(key)) {
-      bySection.set(key, {
-        subject,
-        unit_big: String(q.unit_big||""),
-        unit_section: String(q.unit_section||""),
-        attempts: 0,
-        wrong: 0
+      units.push({
+        key: `G:${gid}`,
+        items: arr,
+        weight: w,
+        isGroup: true,
+        group_id: gid
       });
     }
-    const sec = bySection.get(key);
-    sec.attempts += attempts;
-    sec.wrong += wrong;
-  }
 
-  return { bySubject, bySection };
-}
-
-// 超シンプル棒グラフ（canvas）
-function drawBarChart(canvas, items, titleRightText = "") {
-  const ctx = canvas.getContext("2d");
-  const W = canvas.width, H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
-
-  // 背景
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, W, H);
-
-  const pad = 30;
-  const innerW = W - pad*2;
-  const innerH = H - pad*2;
-
-  // タイトル右上
-  ctx.fillStyle = "#666";
-  ctx.font = "12px system-ui";
-  if (titleRightText) ctx.fillText(titleRightText, W - pad - ctx.measureText(titleRightText).width, 18);
-
-  const maxVal = Math.max(1, ...items.map(x => x.value));
-  const barW = items.length ? (innerW / items.length) : innerW;
-
-  // 軸
-  ctx.strokeStyle = "#eee";
-  ctx.beginPath();
-  ctx.moveTo(pad, H - pad);
-  ctx.lineTo(W - pad, H - pad);
-  ctx.stroke();
-
-  // バー
-  items.forEach((it, i) => {
-    const x = pad + i * barW + 6;
-    const w = Math.max(6, barW - 12);
-    const h = Math.round((it.value / maxVal) * (innerH - 20));
-    const y = (H - pad) - h;
-
-    // バー色（固定しない方針にしたい場合は灰で統一）
-    ctx.fillStyle = "#111";
-    ctx.globalAlpha = 0.85;
-    ctx.fillRect(x, y, w, h);
-    ctx.globalAlpha = 1;
-
-    // 値
-    ctx.fillStyle = "#111";
-    ctx.font = "12px system-ui";
-    const vText = String(it.value);
-    ctx.fillText(vText, x, y - 4);
-
-    // ラベル（短く）
-    ctx.fillStyle = "#666";
-    ctx.font = "11px system-ui";
-    const label = it.label.length > 6 ? it.label.slice(0, 6) + "…" : it.label;
-    ctx.fillText(label, x, H - 12);
-  });
-}
-
-function renderWeakSectionsTable(rows) {
-  if (rows.length === 0) {
-    analytics.weakSections.innerHTML = `<div class="muted">まだ学習履歴がありません（問題を解くと表示されます）。</div>`;
-    return;
-  }
-
-  const html = `
-    <table class="table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>教科</th>
-          <th>大単元 / 節</th>
-          <th>学習回数</th>
-          <th>不正解</th>
-          <th>正答率</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map((r, i) => {
-          const acc = r.attempts > 0 ? Math.round((1 - (r.wrong / r.attempts)) * 100) : 0;
-          return `
-            <tr>
-              <td><span class="badge">${i+1}</span></td>
-              <td>${escapeHtml(r.subjectLabel)}</td>
-              <td>${escapeHtml(r.unit_big)} / ${escapeHtml(r.unit_section || "（未設定）")}</td>
-              <td>${r.attempts}</td>
-              <td>${r.wrong}</td>
-              <td>${acc}%</td>
-            </tr>
-          `;
-        }).join("")}
-      </tbody>
-    </table>
-  `;
-  analytics.weakSections.innerHTML = html;
-}
-
-  
-  let allForSubject = [];
-  let quizList = [];
-  let idx = 0;
-  let correct = 0;
-  let results = [];
-  let isAnswered = false;
-
-  let streak = 0;
-  let bestStreak = 0;
-
-  function show(el, on) { el.style.display = on ? "" : "none"; }
-
-  function qs(params) {
-    const u = new URL(API_BASE);
-    Object.entries(params).forEach(([k,v]) => {
-      if (v !== undefined && v !== null && String(v).trim() !== "") u.searchParams.set(k, v);
-    });
-    u.searchParams.set("_t", Date.now().toString());
-    return u.toString();
-  }
-
-  function fetchJSONP(url) {
-    return new Promise((resolve, reject) => {
-      const cbName = "jsonp_cb_" + Math.random().toString(36).slice(2);
-      const u = new URL(url);
-      u.searchParams.set("callback", cbName);
-
-      const script = document.createElement("script");
-      script.src = u.toString();
-
-      window[cbName] = (data) => { cleanup(); resolve(data); };
-      script.onerror = () => { cleanup(); reject(new Error("JSONP load failed")); };
-
-      function cleanup() { delete window[cbName]; script.remove(); }
-      document.body.appendChild(script);
-    });
-  }
-
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-  }
-
-  function uniqSortUnits(items) {
-    const map = new Map();
-    for (const it of items) {
-      const name = (it.unit_big ?? "").toString().trim();
-      if (!name) continue;
-      const order = Number(it.unit_big_order);
-      if (!map.has(name)) map.set(name, {name, order: Number.isFinite(order) ? order : 9999});
+    // 単独ユニット
+    for (const q of singles) {
+      units.push({
+        key: `Q:${String(q.id ?? Math.random())}`,
+        items: [q],
+        weight: weightForQuestion(q, weakMode),
+        isGroup: false
+      });
     }
-    return Array.from(map.values())
-      .sort((a,b) => a.order - b.order || a.name.localeCompare(b.name,'ja'))
-      .map(x => x.name);
+
+    return units;
   }
 
-  function uniqSortSections(items, unitBig) {
-    const map = new Map();
-    for (const it of items) {
-      const big = (it.unit_big ?? "").toString().trim();
-      if (big !== unitBig) continue;
-      const sec = (it.unit_section ?? "").toString().trim();
-      if (!sec) continue;
-      const order = Number(it.unit_section_order);
-      if (!map.has(sec)) map.set(sec, {sec, order: Number.isFinite(order) ? order : 9999});
+  function sampleWeightedUniqueUnits(units, nUnits) {
+    const items = units.map(u => ({ u, w: Math.max(0.2, Number(u.weight || 1)) }));
+    const picked = [];
+    const N = Math.min(nUnits, items.length);
+
+    for (let i = 0; i < N; i++) {
+      const sum = items.reduce((a, x) => a + x.w, 0);
+      let r = Math.random() * sum;
+      let idx = -1;
+      for (let j = 0; j < items.length; j++) {
+        r -= items[j].w;
+        if (r <= 0) { idx = j; break; }
+      }
+      if (idx < 0) idx = items.length - 1;
+      picked.push(items[idx].u);
+      items.splice(idx, 1);
     }
-    return Array.from(map.values())
-      .sort((a,b) => a.order - b.order || a.sec.localeCompare(b.sec,'ja'))
-      .map(x => x.sec);
+    return picked;
   }
 
-  async function loadCatalog() {
-    els.status.textContent = "読み込み中…";
-    const subject = els.subject.value;
+  function sortPoolSequentialWithGroups(pool) {
+    // group_idでまとめてユニット化（単独は1問ユニット）
+    const groups = new Map(); // key -> [q...]
+    for (const q of pool) {
+      const gid = String(q.group_id || "").trim();
+      if (gid) {
+        const key = `G:${gid}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(q);
+      } else {
+        const key = `Q:${String(q.id ?? Math.random())}`;
+        groups.set(key, [q]);
+      }
+    }
 
-    const json = await fetchJSONP(qs({ subject }));
-    allForSubject = json.data || [];
+    const units = [];
+    for (const [key, arr] of groups.entries()) {
+      if (key.startsWith("G:")) {
+        arr.sort((a, b) => toNumberOrFallback(a.group_order, 999999) - toNumberOrFallback(b.group_order, 999999));
+      }
+      const first = arr[0];
 
-    const unitBigs = uniqSortUnits(allForSubject);
-    els.unitBig.innerHTML = unitBigs.length
-      ? unitBigs.map(u => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join("")
-      : `<option value="">（問題なし）</option>`;
+      // 並びの基準：seq（推奨）→ unit_big_order → unit_section_order → id
+      const seq = toNumberOrFallback(first.seq, 999999);
+      const bigO = toNumberOrFallback(first.unit_big_order, 999999);
+      const secO = toNumberOrFallback(first.unit_section_order, 999999);
+      const idO  = toNumberOrFallback(first.id, 999999);
 
-    const firstBig = unitBigs[0] || "";
-    const sections = uniqSortSections(allForSubject, firstBig);
-    els.unitSection.innerHTML = sections.length
-      ? sections.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")
-      : `<option value="">（節なし）</option>`;
+      units.push({ key, items: arr, seq, bigO, secO, idO });
+    }
 
-    els.status.textContent = `読み込み完了：${json.count}件（科目=${subject}）`;
-    refreshStatsSummary();
+    units.sort((a, b) => {
+      if (a.seq !== b.seq) return a.seq - b.seq;
+      if (a.bigO !== b.bigO) return a.bigO - b.bigO;
+      if (a.secO !== b.secO) return a.secO - b.secO;
+      return a.idO - b.idO;
+    });
+
+    return units.flatMap(u => u.items);
+  }
+
+  function hasWrongInGroup(pool, gid) {
+    const g = String(gid || "").trim();
+    if (!g) return false;
+    return pool.some(q => String(q.group_id || "").trim() === g && isWrongQuestion(q));
+  }
+
+  // =========================
+  // UI
+  // =========================
+  function uniq(arr) {
+    return Array.from(new Set(arr.filter(Boolean)));
+  }
+
+  function uniqSortBigUnits(list) {
+    // unit_big_order があればそれを優先、なければ文字順
+    const map = new Map();
+    list.forEach(q => {
+      const k = String(q.unit_big || "").trim();
+      if (!k) return;
+      if (!map.has(k)) map.set(k, { name: k, order: Number(q.unit_big_order) });
+    });
+    const items = Array.from(map.values());
+    items.sort((a, b) => {
+      const ao = Number.isFinite(a.order) ? a.order : 999999;
+      const bo = Number.isFinite(b.order) ? b.order : 999999;
+      if (ao !== bo) return ao - bo;
+      return a.name.localeCompare(b.name, "ja");
+    });
+    return items.map(x => x.name);
+  }
+
+  function uniqSortSections(list, big) {
+    const map = new Map();
+    list.forEach(q => {
+      if (!eqIgnoreCase(q.unit_big, big)) return;
+      const k = String(q.unit_section || "").trim();
+      if (!k) return;
+      if (!map.has(k)) map.set(k, { name: k, order: Number(q.unit_section_order) });
+    });
+    const items = Array.from(map.values());
+    items.sort((a, b) => {
+      const ao = Number.isFinite(a.order) ? a.order : 999999;
+      const bo = Number.isFinite(b.order) ? b.order : 999999;
+      if (ao !== bo) return ao - bo;
+      return a.name.localeCompare(b.name, "ja");
+    });
+    return items.map(x => x.name);
+  }
+
+  function eqIgnoreCase(a, b) {
+    return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
   }
 
   function currentPool() {
     const subject = els.subject.value;
-    const unitBig = els.unitBig.value;
-    const unitSection = els.unitSection.value;
-    const type = els.typeFilter.value;
+    const big = els.unitBig.value;
+    const sec = els.unitSection.value;
     const rangeMode = els.rangeMode.value;
+    const type = els.typeFilter.value;
 
-    let pool = allForSubject.filter(q =>
-      String(q.subject||"").toLowerCase() === subject &&
-      String(q.unit_big||"").trim() === unitBig
-    );
+    let pool = catalog.filter(q => eqIgnoreCase(q.subject, subject));
+
     if (rangeMode === "section") {
-      pool = pool.filter(q => String(q.unit_section||"").trim() === unitSection);
+      pool = pool.filter(q => eqIgnoreCase(q.unit_big, big) && eqIgnoreCase(q.unit_section, sec));
+    } else {
+      pool = pool.filter(q => eqIgnoreCase(q.unit_big, big));
     }
-    if (type) pool = pool.filter(q => String(q.type||"").toLowerCase() === type);
+
+    if (type) pool = pool.filter(q => eqIgnoreCase(q.type, type));
+
     return pool;
   }
 
-    function refreshStatsSummary() {␊
-    const pool = currentPool();
-    if (pool.length === 0) { els.statsSummary.textContent = ""; return; }
-
-    const sum = summarizeStatsForPool(pool);
-    const rangeLabel = (els.rangeMode.value === "big") ? "大単元全体" : "この節のみ";
-   const sessionModeLabel =
-      els.sessionMode.value === "wrongOnly" ? "（間違えた問題だけ）" :
-      els.sessionMode.value === "sequentialExceptGroups" ? "（指定グループ以外を順番に全網羅）" : "";
-    const groups = parseGroupList(els.orderedGroups.value);
-    const groupsText = groups.length ? ` / 指定グループ：${groups.join("・")}` : "";
-
-    els.statsSummary.textContent =
-      `範囲：${rangeLabel}${sessionModeLabel}${groupsText} / 対象：${pool.length}問 / 学習済み：${sum.seen}問（正解${sum.ok}・不正解${sum.ng}） / 間違いのある問題：${sum.wrongQ}問`;
+  function setOptions(selectEl, options) {
+    selectEl.innerHTML = options.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("");
   }
 
-  function parseGroupList(text) {
-    return String(text || "")
-      .split(",")
-      .map(s => s.trim())
-      .filter(Boolean);
+  async function loadCatalog() {
+    els.status.textContent = "読み込み中...";
+    const subject = els.subject.value;
+
+    const url = `${API_URL}?subject=${encodeURIComponent(subject)}&callback=cb`;
+    const data = await jsonp(url);
+
+    const list = (data && data.data) ? data.data : [];
+    catalog = list;
+    allForSubject = list;
+
+    // big / section をセット
+    const bigUnits = uniqSortBigUnits(allForSubject);
+    setOptions(els.unitBig, bigUnits);
+
+    const big = els.unitBig.value;
+    const sections = uniqSortSections(allForSubject, big);
+    setOptions(els.unitSection, sections);
+
+    els.status.textContent = `読込完了：${list.length}問（教科：${subject}）`;
   }
 
-  function questionGroupName(q) {
-    return String(q.order_group || q.sequence_group || q.group || q.tags || "").trim();
-  }
+  function jsonp(url) {
+    return new Promise((resolve, reject) => {
+      const cbName = "cb_" + Math.random().toString(16).slice(2);
+      const u = url.replace("callback=cb", "callback=" + cbName);
 
-  function questionOrderValue(q) {
-    const raw = Number(q.order_in_group ?? q.sequence_order ?? q.order ?? q.sort_order);
-    return Number.isFinite(raw) ? raw : 9999;
-  }
+      const script = document.createElement("script");
+      script.src = u;
+      script.onerror = () => {
+        cleanup();
+        reject(new Error("JSONP load failed"));
+      };
 
-  function sortQuestionsSequentially(list) {
-    return [...list].sort((a, b) => {
-      const aBig = Number(a.unit_big_order);
-      const bBig = Number(b.unit_big_order);
-      const aSec = Number(a.unit_section_order);
-      const bSec = Number(b.unit_section_order);
-      const bigCmp = ((Number.isFinite(aBig) ? aBig : 9999) - (Number.isFinite(bBig) ? bBig : 9999));
-      if (bigCmp !== 0) return bigCmp;
-      const secCmp = ((Number.isFinite(aSec) ? aSec : 9999) - (Number.isFinite(bSec) ? bSec : 9999));
-      if (secCmp !== 0) return secCmp;
-      const inCmp = questionOrderValue(a) - questionOrderValue(b);
-      if (inCmp !== 0) return inCmp;
-      return String(a.id || "").localeCompare(String(b.id || ""), "ja");
+      function cleanup() {
+        delete window[cbName];
+        script.remove();
+      }
+
+      window[cbName] = (data) => {
+        cleanup();
+        resolve(data);
+      };
+
+      document.body.appendChild(script);
     });
   }
 
-  function enforceGroupOrderInSelection(selected, groupList) {
-    if (!groupList.length) return selected;
-    const targetGroups = new Set(groupList);
-    const grouped = new Map();
-    const untouched = [];
-
-    for (const q of selected) {
-      const g = questionGroupName(q);
-      if (targetGroups.has(g)) {
-        if (!grouped.has(g)) grouped.set(g, []);
-        grouped.get(g).push(q);
-      } else {
-        untouched.push(q);
-      }
-    }
-
-    const orderedGrouped = [];
-    for (const g of groupList) {
-      const items = grouped.get(g);
-      if (!items || items.length === 0) continue;
-      items.sort((a, b) => questionOrderValue(a) - questionOrderValue(b));
-      orderedGrouped.push(...items);
-    }
-    return [...orderedGrouped, ...untouched];
-  }
-
-
-
-  // ★ここが今回の重要修正：確実に消える削除処理（data-qimg）
-  function removeQuestionImage() {
-    document.querySelectorAll('[data-qimg="1"]').forEach(e => e.remove());
-  }
-
-  function resetQuizUI() {
-    isAnswered = false;
-    removeQuestionImage();
-
-    els.feedback.innerHTML = "";
-    show(els.nextBtn, false);
-    show(els.mcqArea, false);
-    show(els.kwArea, false);
-    show(els.selfArea, false);
-
-    els.kwInput.value = "";
-    els.kwInput.disabled = false;
-    els.kwCheckBtn.disabled = true;
-    els.kwCheckBtn.textContent = "採点する";
-
-    els.selfInput.value = "";
-    els.selfInput.disabled = false;
-    els.selfReveal.innerHTML = "";
-    show(els.selfReveal, false);
-    show(els.selfMark, false);
-    els.selfRevealBtn.disabled = false;
-    els.selfRevealBtn.textContent = "模範解答・解説を見る";
-    els.selfOkBtn.disabled = false;
-    els.selfNgBtn.disabled = false;
-  }
-
-  function lockAfterAnswered(type) {
-    isAnswered = true;
-
-    if (type === "keyword") {
-      els.kwCheckBtn.disabled = true;
-      els.kwInput.disabled = true;
-      els.kwCheckBtn.textContent = "採点済み";
-    }
-
-    if (type === "self") {
-      els.selfRevealBtn.disabled = true;
-      els.selfOkBtn.disabled = true;
-      els.selfNgBtn.disabled = true;
-      els.selfInput.disabled = true;
-      els.selfRevealBtn.textContent = "採点済み";
-    }
-  }
-
-  function showAnswerBlock(q) {
-    const ans = (q.answer ?? "").toString();
-    const exp = (q.explanation ?? "").toString();
-    let html = "";
-    if (ans) html += `<div><strong>模範解答：</strong>${escapeHtml(ans)}</div>`;
-    if (exp) html += `<div style="margin-top:6px;"><strong>解説：</strong>${escapeHtml(exp)}</div>`;
-    return html || `<div class="muted">（模範解答/解説が未入力です）</div>`;
-  }
-
-  function normalizeUrl(u) {
-    return String(u || "").trim();
-  }
-
-  // 画像を挿入（あれば） ※data-qimg を付ける
-  function insertQuestionImage(q) {
-    const url = normalizeUrl(q.image_url);
-    if (!url) return;
-
-    removeQuestionImage(); // 念のため二重防止
-    const caption = String(q.image_caption || "").trim();
-
-    const html =
-      `<div class="q-image-wrap" data-qimg="1">
-         <img class="q-image" src="${escapeHtml(url)}" alt="問題画像" loading="lazy">
-         ${caption ? `<div class="q-image-caption">${escapeHtml(caption)}</div>` : ``}
-       </div>`;
-
-    els.qText.insertAdjacentHTML("afterend", html);
+  function playFx(ok) {
+    if (els.fxMode.value !== "on") return;
+    try {
+      if (navigator.vibrate) navigator.vibrate(ok ? 50 : [60, 30, 60]);
+    } catch {}
+    els.quiz.classList.add("fxFlash");
+    setTimeout(() => els.quiz.classList.remove("fxFlash"), 600);
   }
 
   function renderQuestion(q) {
-    resetQuizUI();
+    if (!q) return finish();
 
-    els.progress.textContent = `問題 ${idx + 1} / ${quizList.length}`;
-    els.meta.innerHTML =
-      `<span class="pill">${escapeHtml(q.subject || "")}</span>` +
-      `<span class="pill">${escapeHtml(q.unit_big || "")}</span>` +
-      `<span class="pill">${escapeHtml(q.unit_section || "")}</span>` +
-      (q.tags ? `<span class="pill">${escapeHtml(q.tags)}</span>` : "");
+    const total = quizList.length;
+    els.kpiProgress.textContent = `${idx + 1} / ${total}`;
+    els.kpiScore.textContent = `正解 ${correct}`;
+    els.kpiStreak.textContent = `連続 ${streak}`;
 
-    els.qText.textContent = String(q.question || "");
+    els.kpiUnitBig.textContent = q.unit_big ? `大単元：${q.unit_big}` : "-";
+    els.kpiUnitSection.textContent = q.unit_section ? `節：${q.unit_section}` : "-";
+    els.kpiType.textContent = q.type ? `タイプ：${q.type}` : "-";
 
-    // 画像表示（image_urlがあれば）
-    insertQuestionImage(q);
+    els.qtext.textContent = q.q || q.question || "(問題文なし)";
 
-    const type = String(q.type || "").toLowerCase();
+    // type 切り替え
+    show(els.mcq, false);
+    show(els.keyword, false);
+    show(els.self, false);
 
-    if (type === "mcq") {
-      show(els.mcqArea, true);
-      const choices = [
-        ["A", q.choice_a],
-        ["B", q.choice_b],
-        ["C", q.choice_c],
-        ["D", q.choice_d]
-      ].filter(([,v]) => String(v||"").trim() !== "");
+    if (eqIgnoreCase(q.type, "mcq")) renderMcq(q);
+    else if (eqIgnoreCase(q.type, "keyword")) renderKeyword(q);
+    else renderSelf(q);
+  }
 
-      els.mcqArea.innerHTML = choices.map(([k,v]) =>
-        `<button data-k="${k}"><strong>${k}.</strong> ${escapeHtml(v)}</button>`
-      ).join("");
+  function renderMcq(q) {
+    show(els.mcq, true);
 
-      els.mcqArea.querySelectorAll("button").forEach(btn => {
-        btn.addEventListener("click", () => {
-          if (isAnswered) return;
-          const picked = btn.getAttribute("data-k");
-          gradeMCQ(q, picked);
-        }, { once: true });
-      });
+    const choices = [q.a, q.b, q.c, q.d].filter(x => String(x || "").trim() !== "");
+    els.choices.innerHTML = "";
 
-    } else if (type === "keyword") {
-      show(els.kwArea, true);
+    choices.forEach((c, i) => {
+      const btn = document.createElement("button");
+      btn.className = "choiceBtn";
+      btn.textContent = c;
+      btn.onclick = () => {
+        const correctIndex = Number(q.correct_index);
+        const ok = Number.isFinite(correctIndex) ? (i === correctIndex) : (String(c).trim() === String(q.answer || "").trim());
 
-      els.kwInput.oninput = () => {
-        if (isAnswered) return;
-        els.kwCheckBtn.disabled = els.kwInput.value.trim().length === 0;
+        if (ok) btn.classList.add("correct");
+        else btn.classList.add("wrong");
+
+        finalizeAnswer(q, ok);
       };
+      els.choices.appendChild(btn);
+    });
 
-      els.kwCheckBtn.onclick = () => {
-        if (isAnswered) return;
-        gradeKeyword(q);
-      };
-
-    } else {
-      show(els.selfArea, true);
-
-      els.selfRevealBtn.onclick = () => {
-        if (isAnswered) return;
-        revealSelf(q);
-      };
-
-      els.selfOkBtn.onclick = () => {
-        if (isAnswered) return;
-        markSelf(q, true);
-      };
-
-      els.selfNgBtn.onclick = () => {
-        if (isAnswered) return;
-        markSelf(q, false);
-      };
-    }
+    els.skipBtn.onclick = () => finalizeAnswer(q, false);
   }
 
-  // =========================
-  // 演出（効果音/光る/バイブ/連続正解）
-  // =========================
-  function fxOn() { return els.fxMode.value !== "off"; }
+  function renderKeyword(q) {
+    show(els.keyword, true);
+    els.keywordInput.value = "";
+    els.keywordHint.textContent = q.hint ? `ヒント：${q.hint}` : "";
 
-  function vibrate(pattern) {
-    if (!fxOn()) return;
-    if (navigator && typeof navigator.vibrate === "function") {
-      try { navigator.vibrate(pattern); } catch {}
-    }
+    els.keywordCheckBtn.onclick = () => {
+      const input = String(els.keywordInput.value || "").trim();
+      const ans = String(q.answer || "").trim();
+      const ok = input && ans && eqIgnoreCase(input, ans);
+      finalizeAnswer(q, ok);
+    };
   }
 
-  let audioCtx = null;
-  function beep(freq, durationMs, type = "sine", gain = 0.06) {
-    if (!fxOn()) return;
-    try {
-      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-      const t0 = audioCtx.currentTime;
+  function renderSelf(q) {
+    show(els.self, true);
+    els.selfAnswer.value = "";
+    els.selfReveal.textContent = q.answer ? `答え：${q.answer}` : "";
 
-      const osc = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-
-      osc.type = type;
-      osc.frequency.setValueAtTime(freq, t0);
-
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(gain, t0 + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + durationMs / 1000);
-
-      osc.connect(g);
-      g.connect(audioCtx.destination);
-
-      osc.start(t0);
-      osc.stop(t0 + durationMs / 1000 + 0.02);
-    } catch {}
+    els.selfOkBtn.onclick = () => finalizeAnswer(q, true);
+    els.selfNgBtn.onclick = () => finalizeAnswer(q, false);
   }
 
-  function soundOk() {
-    beep(880, 90, "sine", 0.07);
-    setTimeout(() => beep(1175, 110, "sine", 0.07), 110);
-  }
-  function soundNg() {
-    beep(220, 140, "triangle", 0.06);
-  }
-
-  function applyFx(ok) {
-    if (!fxOn()) return;
-    els.feedback.classList.remove("fx-ok", "fx-ng");
-    void els.feedback.offsetWidth;
-    els.feedback.classList.add(ok ? "fx-ok" : "fx-ng");
-  }
-
-  function streakHtml() {
-    const fire = streak >= 3 ? " 🔥" : "";
-    return `<div class="streak"><span class="fire">連続正解：${streak}${fire}</span>（最高：${bestStreak}）</div>`;
-  }
-
-  function afterGrade(q, ok, type) {
-    results.push({ ok, q: q.question, unit_big: q.unit_big, unit_section: q.unit_section });
-    if (ok) correct++;
-
-    recordAttempt(q, ok);
-    lockAfterAnswered(type);
+  function finalizeAnswer(q, ok) {
+    recordResult(q, ok);
+    results.push({
+      ok,
+      unit_big: q.unit_big,
+      unit_section: q.unit_section,
+      q: q.q || q.question || "",
+      type: q.type || ""
+    });
 
     if (ok) {
-      streak += 1;
+      correct++;
+      streak++;
       bestStreak = Math.max(bestStreak, streak);
     } else {
       streak = 0;
     }
 
-    show(els.nextBtn, true);
-    els.nextBtn.onclick = next;
-  }
+    playFx(ok);
 
-  function gradeMCQ(q, picked) {
-    const correctKey = String(q.correct||"").trim().toUpperCase();
-    const ok = picked === correctKey;
-
-    applyFx(ok);
-    if (ok) { soundOk(); vibrate([20, 30, 20]); }
-    else { soundNg(); vibrate([80]); }
-
-    els.feedback.innerHTML =
-      `<div>${ok ? `<span class="ok">🎉 正解！</span>` : `<span class="ng">✗ 不正解</span>`}</div>` +
-      `<div class="muted">（あなた：${picked} / 正解：${correctKey || "?"}）</div>` +
-      streakHtml() +
-      `<div style="margin-top:10px;">${showAnswerBlock(q)}</div>`;
-
-    afterGrade(q, ok, "mcq");
-  }
-
-  function gradeKeyword(q) {
-    const input = els.kwInput.value || "";
-    const kws = String(q.keywords||"").split(",").map(s => s.trim()).filter(Boolean);
-    const need = Number(q.keyword_min || 1);
-    const hit = kws.filter(k => input.includes(k)).length;
-    const ok = hit >= (Number.isFinite(need) ? need : 1);
-
-    applyFx(ok);
-    if (ok) { soundOk(); vibrate([20, 30, 20]); }
-    else { soundNg(); vibrate([80]); }
-
-    els.feedback.innerHTML =
-      `<div>${ok ? `<span class="ok">🎉 正解！</span>` : `<span class="ng">✗ 不正解</span>`}</div>` +
-      `<div class="muted">一致：${hit} / 必要：${need}</div>` +
-      (kws.length ? `<div class="muted">キーワード：${escapeHtml(kws.join(" / "))}</div>` : "") +
-      streakHtml() +
-      `<div style="margin-top:10px;">${showAnswerBlock(q)}</div>`;
-
-    afterGrade(q, ok, "keyword");
-  }
-
-  function revealSelf(q) {
-    els.selfReveal.innerHTML = showAnswerBlock(q);
-    show(els.selfReveal, true);
-    show(els.selfMark, true);
-  }
-
-  function markSelf(q, ok) {
-    applyFx(ok);
-    if (ok) { soundOk(); vibrate([20, 30, 20]); }
-    else { soundNg(); vibrate([80]); }
-
-    els.feedback.innerHTML =
-      `<div>${ok ? `<span class="ok">🎉 正解！</span>` : `<span class="ng">✗ 不正解</span>`}</div>` +
-      streakHtml();
-
-    afterGrade(q, ok, "self");
-  }
-
-  function next() {
     idx++;
-    if (idx >= quizList.length) return showResult();
-    renderQuestion(quizList[idx]);
+    if (idx >= quizList.length) return finish();
+    setTimeout(() => renderQuestion(quizList[idx]), 250);
   }
 
-  function showResult() {
-    show(els.setup, false);
+  function finish() {
     show(els.quiz, false);
     show(els.result, true);
 
-    els.scoreLine.innerHTML =
-      `<div><strong>${correct} / ${quizList.length}</strong>（正答率 ${(correct/quizList.length*100).toFixed(0)}%）</div>` +
-      `<div class="muted">最高連続正解：${bestStreak}</div>`;
+    const total = quizList.length;
+    const rate = total ? Math.round(correct * 1000 / total) / 10 : 0;
+
+    els.resultSummary.innerHTML = `
+      <div>正解：<b>${correct}</b> / ${total}（正答率 ${rate}%）</div>
+      <div class="muted">最大連続正解：${bestStreak}</div>
+    `;
 
     const wrongs = results.filter(r => !r.ok);
     if (wrongs.length === 0) {
@@ -1061,41 +752,73 @@ function renderWeakSectionsTable(rows) {
     }
   }
 
- function startQuiz() {␊
+  function startQuiz() {
     let pool = currentPool();
-    const n = Math.max(1, Math.min(50, Number(els.numQ.value || 10)));
-    const mode = els.weakMode.value;
-    const sessionMode = els.sessionMode.value;
-    const groupList = parseGroupList(els.orderedGroups.value);
 
+    const n = Math.max(1, Math.min(50, Number(els.numQ.value || 10)));
+    const weakMode = els.weakMode.value;
+    const sessionMode = els.sessionMode.value;
+    const deliveryMode = (els.deliveryMode && els.deliveryMode.value) ? els.deliveryMode.value : "random";
+
+    // seq 範囲（任意）
+    const seqFrom = els.seqFrom ? els.seqFrom.value : "";
+    const seqTo   = els.seqTo   ? els.seqTo.value   : "";
+    pool = filterBySeqRange(pool, seqFrom, seqTo);
 
     if (pool.length === 0) {
       alert("この条件の問題がありません。問題を追加するか、条件を変えてください。");
       return;
     }
 
-   if (sessionMode === "wrongOnly") {
-      const wrongPool = pool.filter(isWrongQuestion);
-      if (wrongPool.length === 0) {
+    // 間違いだけ
+    if (sessionMode === "wrongOnly") {
+      // 単独：間違えた問題だけ
+      // グループ：グループ内に1問でも間違いがあれば、そのグループは丸ごと出す
+      const filtered = pool.filter(q => {
+        const gid = String(q.group_id || "").trim();
+        if (!gid) return isWrongQuestion(q);
+        return hasWrongInGroup(pool, gid);
+      });
+
+      if (filtered.length === 0) {
         alert("この範囲では「間違えた問題」がまだありません。まず通常モードで解いて履歴を作ってください。");
         return;
       }
-      pool = wrongPool;
+      pool = filtered;
     }
 
-    if (sessionMode === "sequentialExceptGroups") {
-      const excluded = new Set(groupList);
-      const targetPool = pool.filter(q => !excluded.has(questionGroupName(q)));
-      if (targetPool.length === 0) {
-        alert("指定グループ以外に出題対象がありません。グループ指定か範囲を見直してください。");
-        return;
-      }
-      quizList = sortQuestionsSequentially(targetPool);
+    if (deliveryMode === "sequential") {
+      // ★順番に網羅（グループは連結＆順番固定）
+      quizList = sortPoolSequentialWithGroups(pool);
+
+      // ※網羅モードでは numQ は無視して全問出します
+      // もし「最初のN問だけ」も欲しい場合は下を有効化
+      // quizList = quizList.slice(0, n);
+
     } else {
-      quizList = sampleWeightedUnique(pool, n, mode);
-      quizList = enforceGroupOrderInSelection(quizList, groupList);
-    }
+      // ★ランダム（抽選単位をユニット化：グループは切らず連結）
+      const units = buildUnitsFromPool(pool, weakMode);
+      const pickedUnits = sampleWeightedUniqueUnits(units, units.length);
 
+      // n問に近づける（グループは原則切らない）
+      const final = [];
+      for (const u of pickedUnits) {
+        if (final.length >= n) break;
+
+        // グループを途中で切りたくないので、はみ出すグループはスキップ
+        if (u.isGroup && final.length + u.items.length > n) continue;
+
+        final.push(...u.items);
+      }
+
+      // どうしても埋まらない時の保険：ユニットを平坦化して先頭からn問
+      if (final.length === 0) {
+        const flat = pickedUnits.flatMap(u => u.items);
+        quizList = flat.slice(0, n);
+      } else {
+        quizList = final;
+      }
+    }
 
     idx = 0;
     correct = 0;
@@ -1119,90 +842,33 @@ function renderWeakSectionsTable(rows) {
     const sections = uniqSortSections(allForSubject, big);
     els.unitSection.innerHTML = sections.length
       ? sections.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")
-      : `<option value="">（節なし）</option>`;
-    refreshStatsSummary();
+      : `<option value="">(節なし)</option>`;
   };
 
-  els.unitSection.onchange = refreshStatsSummary;
-  els.typeFilter.onchange = refreshStatsSummary;
-  els.weakMode.onchange = refreshStatsSummary;
-  els.rangeMode.onchange = refreshStatsSummary;
-  els.sessionMode.onchange = refreshStatsSummary;
-  els.orderedGroups.onchange = refreshStatsSummary;
-  els.orderedGroups.oninput = refreshStatsSummary;
+  els.startBtn.onclick = () => startQuiz();
 
+  els.quitBtn.onclick = () => {
+    if (!confirm("中断して設定画面に戻りますか？")) return;
+    show(els.quiz, false);
+    show(els.result, false);
+    show(els.setup, true);
+  };
 
-  els.startBtn.onclick = startQuiz;
-
-  els.quitBtn.onclick = showResult;
   els.backBtn.onclick = () => {
-    show(els.result,false);
-    show(els.quiz,false);
-    show(els.setup,true);
-    refreshStatsSummary();
+    show(els.result, false);
+    show(els.setup, true);
   };
 
-  els.resetStatsBtn.onclick = () => {
-    if (!confirm("この端末の学習履歴をすべてリセットします。よろしいですか？")) return;
-    resetStats();
-    refreshStatsSummary();
-    alert("リセットしました。");
-  };
+  els.resetStatsBtn.onclick = () => resetStats();
 
-  analytics.btn.onclick = async () => {
-  try {
-    analytics.card.style.display = "none";
-    analytics.status.textContent = "分析を準備しています…";
-
-    const allQ = await fetchAllQuestionsForAnalytics();
-    const { bySubject, bySection } = buildAnalytics(allQ);
-
-    // 教科別（棒）
-    const subjectItems = SUBJECTS.map(s => ({
-      label: s.label,
-      value: (bySubject.get(s.key)?.attempts || 0)
-    }));
-    drawBarChart(analytics.chartSubject, subjectItems, "教科別");
-
-    // 節別（選択中の教科のみ）
-    const curSubject = els.subject.value;
-    const sectionItemsRaw = Array.from(bySection.values())
-      .filter(x => x.subject === curSubject)
-      .sort((a,b) => b.attempts - a.attempts)
-      .slice(0, 12); // 多すぎると見えないので上位12
-
-    const sectionItems = sectionItemsRaw.map(x => ({
-      label: x.unit_section || "未設定",
-      value: x.attempts
-    }));
-    drawBarChart(analytics.chartSection, sectionItems, "節別(上位)");
-
-    // 不得意節ランキング：不正解が多い順（上位20）
-    const weakRows = Array.from(bySection.values())
-      .filter(x => x.wrong > 0)
-      .sort((a,b) => b.wrong - a.wrong || b.attempts - a.attempts)
-      .slice(0, 20)
-      .map(x => ({
-        ...x,
-        subjectLabel: (SUBJECTS.find(s => s.key === x.subject)?.label || x.subject)
-      }));
-
-    renderWeakSectionsTable(weakRows);
-
-    analytics.card.style.display = "";
-    analytics.status.textContent = "分析を更新しました。";
-  } catch (e) {
-    analytics.status.textContent = "分析に失敗しました：" + (e?.message || e);
-  }
-};
-
-
-  loadCatalog().catch(e => els.status.textContent = "初期読込失敗：" + e.message);
+  // 初期化
+  renderStatsSummary();
+  loadCatalog().catch(e => els.status.textContent = "読込失敗：" + e.message);
+})();
 </script>
 
 </body>
 </html>
-
 
 
 
