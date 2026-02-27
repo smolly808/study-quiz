@@ -143,7 +143,13 @@
   <select id="sessionMode">
     <option value="normal" selected>通常</option>
     <option value="wrongOnly">間違えた問題だけ</option>
+    <option value="sequentialExceptGroups">指定グループ以外を順番に全網羅</option>
   </select>
+
+  <label>順番固定/除外グループ（カンマ区切り）</label>
+  <input id="orderedGroups" type="text" placeholder="例: 年表A, 重要語句" />
+  <div class="muted">※この欄のグループ名は、通常モードでは「順番固定」、全網羅モードでは「除外対象」として使います。</div>
+
 
   <label>苦手優先</label>
   <select id="weakMode">
@@ -340,7 +346,9 @@
     numQ: document.getElementById('numQ'),
     typeFilter: document.getElementById('typeFilter'),
     sessionMode: document.getElementById('sessionMode'),
+    orderedGroups: document.getElementById('orderedGroups'),
     weakMode: document.getElementById('weakMode'),
+
     fxMode: document.getElementById('fxMode'),
     startBtn: document.getElementById('startBtn'),
     reloadBtn: document.getElementById('reloadBtn'),
@@ -671,17 +679,81 @@ function renderWeakSectionsTable(rows) {
     return pool;
   }
 
-  function refreshStatsSummary() {
+    function refreshStatsSummary() {␊
     const pool = currentPool();
     if (pool.length === 0) { els.statsSummary.textContent = ""; return; }
 
     const sum = summarizeStatsForPool(pool);
     const rangeLabel = (els.rangeMode.value === "big") ? "大単元全体" : "この節のみ";
-    const wrongOnly = (els.sessionMode.value === "wrongOnly") ? "（間違えた問題だけ）" : "";
+   const sessionModeLabel =
+      els.sessionMode.value === "wrongOnly" ? "（間違えた問題だけ）" :
+      els.sessionMode.value === "sequentialExceptGroups" ? "（指定グループ以外を順番に全網羅）" : "";
+    const groups = parseGroupList(els.orderedGroups.value);
+    const groupsText = groups.length ? ` / 指定グループ：${groups.join("・")}` : "";
 
     els.statsSummary.textContent =
-      `範囲：${rangeLabel}${wrongOnly} / 対象：${pool.length}問 / 学習済み：${sum.seen}問（正解${sum.ok}・不正解${sum.ng}） / 間違いのある問題：${sum.wrongQ}問`;
+      `範囲：${rangeLabel}${sessionModeLabel}${groupsText} / 対象：${pool.length}問 / 学習済み：${sum.seen}問（正解${sum.ok}・不正解${sum.ng}） / 間違いのある問題：${sum.wrongQ}問`;
   }
+
+  function parseGroupList(text) {
+    return String(text || "")
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean);
+  }
+
+  function questionGroupName(q) {
+    return String(q.order_group || q.sequence_group || q.group || q.tags || "").trim();
+  }
+
+  function questionOrderValue(q) {
+    const raw = Number(q.order_in_group ?? q.sequence_order ?? q.order ?? q.sort_order);
+    return Number.isFinite(raw) ? raw : 9999;
+  }
+
+  function sortQuestionsSequentially(list) {
+    return [...list].sort((a, b) => {
+      const aBig = Number(a.unit_big_order);
+      const bBig = Number(b.unit_big_order);
+      const aSec = Number(a.unit_section_order);
+      const bSec = Number(b.unit_section_order);
+      const bigCmp = ((Number.isFinite(aBig) ? aBig : 9999) - (Number.isFinite(bBig) ? bBig : 9999));
+      if (bigCmp !== 0) return bigCmp;
+      const secCmp = ((Number.isFinite(aSec) ? aSec : 9999) - (Number.isFinite(bSec) ? bSec : 9999));
+      if (secCmp !== 0) return secCmp;
+      const inCmp = questionOrderValue(a) - questionOrderValue(b);
+      if (inCmp !== 0) return inCmp;
+      return String(a.id || "").localeCompare(String(b.id || ""), "ja");
+    });
+  }
+
+  function enforceGroupOrderInSelection(selected, groupList) {
+    if (!groupList.length) return selected;
+    const targetGroups = new Set(groupList);
+    const grouped = new Map();
+    const untouched = [];
+
+    for (const q of selected) {
+      const g = questionGroupName(q);
+      if (targetGroups.has(g)) {
+        if (!grouped.has(g)) grouped.set(g, []);
+        grouped.get(g).push(q);
+      } else {
+        untouched.push(q);
+      }
+    }
+
+    const orderedGrouped = [];
+    for (const g of groupList) {
+      const items = grouped.get(g);
+      if (!items || items.length === 0) continue;
+      items.sort((a, b) => questionOrderValue(a) - questionOrderValue(b));
+      orderedGrouped.push(...items);
+    }
+    return [...orderedGrouped, ...untouched];
+  }
+
+
 
   // ★ここが今回の重要修正：確実に消える削除処理（data-qimg）
   function removeQuestionImage() {
@@ -989,18 +1061,20 @@ function renderWeakSectionsTable(rows) {
     }
   }
 
-  function startQuiz() {
+ function startQuiz() {␊
     let pool = currentPool();
     const n = Math.max(1, Math.min(50, Number(els.numQ.value || 10)));
     const mode = els.weakMode.value;
     const sessionMode = els.sessionMode.value;
+    const groupList = parseGroupList(els.orderedGroups.value);
+
 
     if (pool.length === 0) {
       alert("この条件の問題がありません。問題を追加するか、条件を変えてください。");
       return;
     }
 
-    if (sessionMode === "wrongOnly") {
+   if (sessionMode === "wrongOnly") {
       const wrongPool = pool.filter(isWrongQuestion);
       if (wrongPool.length === 0) {
         alert("この範囲では「間違えた問題」がまだありません。まず通常モードで解いて履歴を作ってください。");
@@ -1009,7 +1083,19 @@ function renderWeakSectionsTable(rows) {
       pool = wrongPool;
     }
 
-    quizList = sampleWeightedUnique(pool, n, mode);
+    if (sessionMode === "sequentialExceptGroups") {
+      const excluded = new Set(groupList);
+      const targetPool = pool.filter(q => !excluded.has(questionGroupName(q)));
+      if (targetPool.length === 0) {
+        alert("指定グループ以外に出題対象がありません。グループ指定か範囲を見直してください。");
+        return;
+      }
+      quizList = sortQuestionsSequentially(targetPool);
+    } else {
+      quizList = sampleWeightedUnique(pool, n, mode);
+      quizList = enforceGroupOrderInSelection(quizList, groupList);
+    }
+
 
     idx = 0;
     correct = 0;
@@ -1042,6 +1128,9 @@ function renderWeakSectionsTable(rows) {
   els.weakMode.onchange = refreshStatsSummary;
   els.rangeMode.onchange = refreshStatsSummary;
   els.sessionMode.onchange = refreshStatsSummary;
+  els.orderedGroups.onchange = refreshStatsSummary;
+  els.orderedGroups.oninput = refreshStatsSummary;
+
 
   els.startBtn.onclick = startQuiz;
 
@@ -1113,6 +1202,7 @@ function renderWeakSectionsTable(rows) {
 
 </body>
 </html>
+
 
 
 
