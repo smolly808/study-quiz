@@ -145,12 +145,13 @@
     <option value="wrongOnly">間違えた問題だけ</option>
   </select>
 
-  <label>苦手優先</label>
-  <select id="weakMode">
-    <option value="off">OFF（完全ランダム）</option>
-    <option value="mid" selected>ON（標準）</option>
-    <option value="strong">ON（強め）</option>
-  </select>
+<label>苦手優先</label>
+<select id="weakMode">
+  <option value="off">OFF（完全ランダム）</option>
+  <option value="mid" selected>ON（標準）</option>
+  <option value="strong">ON（強め）</option>
+  <option value="all">全て通し（ID昇順）</option>
+</select>
 
   <label>演出</label>
   <select id="fxMode">
@@ -989,40 +990,62 @@ function renderWeakSectionsTable(rows) {
     }
   }
 
-  function startQuiz() {
-    let pool = currentPool();
-    const n = Math.max(1, Math.min(50, Number(els.numQ.value || 10)));
-    const mode = els.weakMode.value;
-    const sessionMode = els.sessionMode.value;
+function startQuiz() {
+  let pool = currentPool();
+  const mode = els.weakMode.value;
+  const sessionMode = els.sessionMode.value;
 
-    if (pool.length === 0) {
-      alert("この条件の問題がありません。問題を追加するか、条件を変えてください。");
+  if (pool.length === 0) {
+    alert("この条件の問題がありません。問題を追加するか、条件を変えてください。");
+    return;
+  }
+
+  // 「間違えた問題だけ」フィルタ（全て通しでも適用）
+  if (sessionMode === "wrongOnly") {
+    const wrongPool = pool.filter(isWrongQuestion);
+    if (wrongPool.length === 0) {
+      alert("この範囲では「間違えた問題」がまだありません。まず通常モードで解いて履歴を作ってください。");
       return;
     }
-
-    if (sessionMode === "wrongOnly") {
-      const wrongPool = pool.filter(isWrongQuestion);
-      if (wrongPool.length === 0) {
-        alert("この範囲では「間違えた問題」がまだありません。まず通常モードで解いて履歴を作ってください。");
-        return;
-      }
-      pool = wrongPool;
-    }
-
-    quizList = sampleWeightedUnique(pool, n, mode);
-
-    idx = 0;
-    correct = 0;
-    results = [];
-    streak = 0;
-    bestStreak = 0;
-
-    show(els.setup, false);
-    show(els.result, false);
-    show(els.quiz, true);
-
-    renderQuestion(quizList[0]);
+    pool = wrongPool;
   }
+
+  // ★ 全て通し（ID昇順で、範囲内の全問を出題）
+  if (mode === "all") {
+    // id を数値優先で昇順、同値や非数値は文字列比較で安定化
+    const sorted = [...pool].sort((a, b) => {
+      const aRaw = (a.id ?? "").toString().trim();
+      const bRaw = (b.id ?? "").toString().trim();
+      const aNum = Number(aRaw);
+      const bNum = Number(bRaw);
+      const aIsNum = Number.isFinite(aNum);
+      const bIsNum = Number.isFinite(bNum);
+
+      if (aIsNum && bIsNum) return aNum - bNum;
+      if (aIsNum && !bIsNum) return -1;
+      if (!aIsNum && bIsNum) return 1;
+      return aRaw.localeCompare(bRaw, "ja");
+    });
+
+    quizList = sorted;              // ← 全問
+  } else {
+    // 従来どおり（ランダム／苦手優先）
+    const n = Math.max(1, Math.min(50, Number(els.numQ.value || 10)));
+    quizList = sampleWeightedUnique(pool, n, mode);
+  }
+
+  idx = 0;
+  correct = 0;
+  results = [];
+  streak = 0;
+  bestStreak = 0;
+
+  show(els.setup, false);
+  show(els.result, false);
+  show(els.quiz, true);
+
+  renderQuestion(quizList[0]);
+}
 
   // イベント
   els.reloadBtn.onclick = () => loadCatalog().catch(e => els.status.textContent = "読込失敗：" + e.message);
@@ -1113,5 +1136,6 @@ function renderWeakSectionsTable(rows) {
 
 </body>
 </html>
+
 
 
