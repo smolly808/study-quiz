@@ -125,7 +125,12 @@
 
   <div class="row">
     <div>
-      <label>問題数</label>
+<label>
+  問題数
+  <span class="badge" id="numQBadge" style="display:none; margin-left:6px;">全問</span>
+</label>
+<input id="numQ" type="number" min="1" max="50" value="10" />
+<div class="muted" id="numQHint" style="margin-top:6px;"></div>
       <input id="numQ" type="number" min="1" max="50" value="10" />
     </div>
     <div>
@@ -339,6 +344,8 @@
     unitSection: document.getElementById('unitSection'),
     rangeMode: document.getElementById('rangeMode'),
     numQ: document.getElementById('numQ'),
+    numQBadge: document.getElementById('numQBadge'),
+    numQHint: document.getElementById('numQHint'),
     typeFilter: document.getElementById('typeFilter'),
     sessionMode: document.getElementById('sessionMode'),
     weakMode: document.getElementById('weakMode'),
@@ -654,6 +661,34 @@ function renderWeakSectionsTable(rows) {
     refreshStatsSummary();
   }
 
+let lastNumQValue = null;
+
+function syncAllThroughUI() {
+  const pool = currentPool();
+  const mode = els.weakMode.value; // "all" を想定（全て通し）
+
+  const isAll = (mode === "all");
+
+  if (isAll) {
+    // 元の入力値を退避（初回だけ）
+    if (lastNumQValue === null) lastNumQValue = els.numQ.value;
+
+    els.numQ.disabled = true;
+    els.numQBadge.style.display = "";
+    els.numQHint.textContent = `全問（${pool.length}問）をID昇順で通し出題します。`;
+  } else {
+    // 復帰
+    els.numQ.disabled = false;
+    els.numQBadge.style.display = "none";
+    els.numQHint.textContent = "";
+
+    if (lastNumQValue !== null) {
+      els.numQ.value = lastNumQValue;
+      lastNumQValue = null;
+    }
+  }
+}
+  
   function currentPool() {
     const subject = els.subject.value;
     const unitBig = els.unitBig.value;
@@ -672,17 +707,28 @@ function renderWeakSectionsTable(rows) {
     return pool;
   }
 
-  function refreshStatsSummary() {
-    const pool = currentPool();
-    if (pool.length === 0) { els.statsSummary.textContent = ""; return; }
-
-    const sum = summarizeStatsForPool(pool);
-    const rangeLabel = (els.rangeMode.value === "big") ? "大単元全体" : "この節のみ";
-    const wrongOnly = (els.sessionMode.value === "wrongOnly") ? "（間違えた問題だけ）" : "";
-
-    els.statsSummary.textContent =
-      `範囲：${rangeLabel}${wrongOnly} / 対象：${pool.length}問 / 学習済み：${sum.seen}問（正解${sum.ok}・不正解${sum.ng}） / 間違いのある問題：${sum.wrongQ}問`;
+function refreshStatsSummary() {
+  const pool = currentPool();
+  if (pool.length === 0) { 
+    els.statsSummary.textContent = ""; 
+    // poolが空でもUIは戻しておく
+    syncAllThroughUI();
+    return; 
   }
+
+  // ★ここでUI同期（全て通し時に numQ を無効化＆全問表示）
+  syncAllThroughUI();
+
+  const sum = summarizeStatsForPool(pool);
+  const rangeLabel = (els.rangeMode.value === "big") ? "大単元全体" : "この節のみ";
+  const wrongOnly = (els.sessionMode.value === "wrongOnly") ? "（間違えた問題だけ）" : "";
+
+  // ★全て通し表記を追加
+  const allThroughLabel = (els.weakMode.value === "all") ? ` / 全て通し：全${pool.length}問` : "";
+
+  els.statsSummary.textContent =
+    `範囲：${rangeLabel}${wrongOnly}${allThroughLabel} / 対象：${pool.length}問 / 学習済み：${sum.seen}問（正解${sum.ok}・不正解${sum.ng}） / 間違いのある問題：${sum.wrongQ}問`;
+}
 
   // ★ここが今回の重要修正：確実に消える削除処理（data-qimg）
   function removeQuestionImage() {
@@ -1136,6 +1182,7 @@ function startQuiz() {
 
 </body>
 </html>
+
 
 
 
