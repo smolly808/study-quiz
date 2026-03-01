@@ -335,6 +335,88 @@
     return picked;
   }
 
+// =========================
+// グループ出題（group_id / group_order）
+// =========================
+function normGroupId(v) {
+  const s = String(v ?? "").trim();
+  return s ? s : "";
+}
+
+function toNumOrInf(v, fallback = Infinity) {
+  const n = Number(String(v ?? "").trim());
+  return Number.isFinite(n) ? n : fallback;
+}
+
+// pool（現在の出題範囲）から、選ばれた起点リストを「グループ連続」ルールで展開して quizList を作る
+function expandPickedWithGroups(picked, pool) {
+  const byId = new Map(); // id -> question
+  for (const q of pool) {
+    const id = String(q.id ?? "").trim();
+    if (id) byId.set(id, q);
+  }
+
+  const added = new Set();      // 既にquizListに入れた question.id
+  const addedGroup = new Set(); // 既に処理した group_id
+
+  const out = [];
+
+  for (const base of picked) {
+    const gid = normGroupId(base.group_id);
+    const baseId = String(base.id ?? "").trim();
+
+    // グループ無し → そのまま1問
+    if (!gid) {
+      if (baseId && !added.has(baseId)) {
+        out.push(base);
+        added.add(baseId);
+      }
+      continue;
+    }
+
+    // 既にそのgroup_idを展開済みならスキップ
+    if (addedGroup.has(gid)) continue;
+    addedGroup.add(gid);
+
+    // pool内の同一 group_id を全部集める
+    const members = pool
+      .filter(q => normGroupId(q.group_id) === gid)
+      .slice()
+      .sort((a, b) => {
+        const ao = toNumOrInf(a.group_order, Infinity);
+        const bo = toNumOrInf(b.group_order, Infinity);
+        if (ao !== bo) return ao - bo;
+
+        // orderが同じ/空のときの安定化：id昇順
+        const aid = String(a.id ?? "").trim();
+        const bid = String(b.id ?? "").trim();
+        const an = Number(aid), bn = Number(bid);
+        const aIsNum = Number.isFinite(an), bIsNum = Number.isFinite(bn);
+        if (aIsNum && bIsNum) return an - bn;
+        if (aIsNum && !bIsNum) return -1;
+        if (!aIsNum && bIsNum) return 1;
+        return aid.localeCompare(bid, "ja");
+      });
+
+    // ★必ず group_order=1 から始めたい
+    // もし1が無いなら、ソート先頭から（運用上は1を入れるの推奨）
+    let startIndex = 0;
+    const idx1 = members.findIndex(q => toNumOrInf(q.group_order, Infinity) === 1);
+    if (idx1 >= 0) startIndex = idx1;
+
+    for (let i = startIndex; i < members.length; i++) {
+      const q = members[i];
+      const id = String(q.id ?? "").trim();
+      if (!id || added.has(id)) continue;
+      out.push(q);
+      added.add(id);
+    }
+  }
+
+  return out;
+}
+
+  
   // =========================
   // UI
   // =========================
@@ -1075,9 +1157,12 @@ function startQuiz() {
 
     quizList = sorted;              // ← 全問
   } else {
-    // 従来どおり（ランダム／苦手優先）
+    // 従来どおり（ランダム／苦手優先）→ 起点をn問選んでからグループ展開
     const n = Math.max(1, Math.min(50, Number(els.numQ.value || 10)));
-    quizList = sampleWeightedUnique(pool, n, mode);
+    const picked = sampleWeightedUnique(pool, n, mode);
+
+    // ★ここが追加：group_id が当たったら group_order 1→最後まで連続で出す
+    quizList = expandPickedWithGroups(picked, pool);
   }
 
   idx = 0;
@@ -1182,6 +1267,7 @@ function startQuiz() {
 
 </body>
 </html>
+
 
 
 
