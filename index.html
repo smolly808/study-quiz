@@ -949,6 +949,7 @@ function refreshStatsSummary() {
     resetQuizUI();
 
     const qst = getQuestionStats(q);
+    const viewMode = isViewMode();
     els.progress.textContent = `問題 ${idx + 1} / ${quizList.length}`;
     els.qStats.textContent = `これまでの正答数/出題数：${qst.ok}/${qst.total}`;
     els.meta.innerHTML =
@@ -962,13 +963,10 @@ function refreshStatsSummary() {
     // 画像表示（image_urlがあれば）
     insertQuestionImage(q);
 
-    if (isViewMode()) {
+    if (viewMode) {
       els.feedback.innerHTML =
-        `<div class="muted">閲覧モード：この問題は学習履歴に反映されません。</div>` +
+        `<div class="muted">閲覧モード：答え・解説を表示したまま解答できます。採点結果は今回の画面内だけで集計し、学習履歴には反映しません。</div>` +
         `<div style="margin-top:10px;">${showAnswerBlock(q)}</div>`;
-      show(els.nextBtn, true);
-      els.nextBtn.onclick = next;
-      return;
     }
 
     const type = String(q.type || "").toLowerCase();
@@ -1010,10 +1008,18 @@ function refreshStatsSummary() {
     } else {
       show(els.selfArea, true);
 
-      els.selfRevealBtn.onclick = () => {
-        if (isAnswered) return;
-        revealSelf(q);
-      };
+      if (viewMode) {
+        els.selfReveal.innerHTML = showAnswerBlock(q);
+        show(els.selfReveal, true);
+        show(els.selfMark, true);
+        els.selfRevealBtn.disabled = true;
+        els.selfRevealBtn.textContent = "表示中";
+      } else {
+        els.selfRevealBtn.onclick = () => {
+          if (isAnswered) return;
+          revealSelf(q);
+        };
+      }
 
       els.selfOkBtn.onclick = () => {
         if (isAnswered) return;
@@ -1172,12 +1178,20 @@ function refreshStatsSummary() {
     show(els.result, true);
 
     if (isViewMode()) {
-      els.scoreLine.innerHTML =
-        `<div><strong>${quizList.length}問</strong>を閲覧しました</div>` +
-        `<div class="muted">閲覧モードでは、正答率・出題回数・学習履歴には反映しません。</div>`;
+      const rate = quizList.length ? (correct / quizList.length * 100).toFixed(0) : "0";
+      const wrongs = results.filter(r => !r.ok);
 
-      els.review.innerHTML =
-        `<div class="muted">必要に応じて、同じ範囲を通常モードや苦手優先モードで解いてください。</div>`;
+      els.scoreLine.innerHTML =
+        `<div><strong>${correct} / ${quizList.length}</strong>（正答率 ${rate}%）</div>` +
+        `<div class="muted">閲覧モードの採点結果です。正答率・出題回数・学習履歴には反映しません。</div>`;
+
+      if (wrongs.length === 0) {
+        els.review.innerHTML = `<div class="ok">🎉 全問正解！</div>`;
+      } else {
+        els.review.innerHTML =
+          `<div class="ng">間違い：${wrongs.length}問</div>` +
+          `<ol>${wrongs.map(w => `<li>${escapeHtml(w.unit_big||"")} / ${escapeHtml(w.unit_section||"")}：${escapeHtml(w.q||"")}</li>`).join("")}</ol>`;
+      }
       return;
     }
 
@@ -1345,4 +1359,7 @@ function startQuiz() {
 
 </body>
 </html>
+
+
+
 
