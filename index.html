@@ -153,9 +153,9 @@
 <label>苦手優先</label>
 <select id="weakMode">
   <option value="off">OFF（完全ランダム）</option>
-  <option value="mid" selected>ON（標準）</option>
+  <option value="mid">ON（標準）</option>
   <option value="strong">ON（強め）</option>
-  <option value="all">全て通し（ID昇順）</option>
+  <option value="all" selected>全て通し（ID昇順）</option>
 </select>
 
   <label>演出</label>
@@ -292,31 +292,66 @@
     return !!(s && (s.ng || 0) > 0);
   }
 
-  function weightForQuestion(q, mode) {
-    if (mode === "off") return 1;
-
+  function buildWeightedItems(pool, mode) {
     const stats = loadStats();
-    const id = String(q.id ?? "");
-    const s = stats[id] || { ok: 0, ng: 0, lastAt: 0 };
 
-    const ok = Number(s.ok || 0);
-    const ng = Number(s.ng || 0);
-    const total = ok + ng;
+    if (mode === "off") {
+      return pool.map(q => ({ q, w: 1 }));
+    }
 
-    const wrongRate = total > 0 ? (ng / total) : 0;
+    if (mode === "strong") {
+      return pool.map(q => {
+        const id = String(q.id ?? "");
+        const s = stats[id] || { ok: 0, ng: 0, lastAt: 0 };
 
-    const recentHours = (Date.now() - (s.lastAt || 0)) / 36e5;
-    const recentBoost = (ng > 0 && recentHours <= 24) ? 0.4 : 0;
+        const ok = Number(s.ok || 0);
+        const ng = Number(s.ng || 0);
+        const total = ok + ng;
+        const wrongRate = total > 0 ? (ng / total) : 0;
 
-    const k = (mode === "strong") ? 3.0 : 2.0;
-    const b = (mode === "strong") ? 1.3 : 1.1;
+        const recentHours = (Date.now() - (s.lastAt || 0)) / 36e5;
+        const recentBoost = (ng > 0 && recentHours <= 24) ? 0.4 : 0;
 
-    const w = 1 + k * wrongRate + b * Math.min(5, ng) / 5 + recentBoost;
-    return Math.max(0.2, w);
+        const w = 1 + 3.0 * wrongRate + 1.3 * Math.min(5, ng) / 5 + recentBoost;
+        return { q, w: Math.max(0.2, w) };
+      });
+    }
+
+    if (mode === "mid") {
+      const rows = pool.map(q => {
+        const id = String(q.id ?? "");
+        const s = stats[id] || { ok: 0, ng: 0, lastAt: 0 };
+
+        const ok = Number(s.ok || 0);
+        const ng = Number(s.ng || 0);
+        const total = ok + ng;
+        const acc = total > 0 ? (ok / total) : -1; // 未出題は最優先側
+
+        return { q, ok, ng, total, acc };
+      });
+
+      const maxTotal = rows.reduce((m, x) => Math.max(m, x.total), 0);
+      const threshold = maxTotal / 2;
+
+      return rows.map(x => {
+        const underHalf = x.total <= threshold ? 1 : 0;
+        const accPriority = (x.acc < 0) ? 1 : (1 - x.acc);
+        const fewPriority = 1 / (x.total + 1);
+
+        const w =
+          1000 * underHalf +   // ① 最多出題数の半分以下を最優先
+          100 * accPriority +  // ② 正答率が低いものを優先
+          10 * fewPriority;    // ③ 正答率が同じなら出題数が少ないものを優先
+
+        return { q: x.q, w };
+      });
+    }
+
+    return pool.map(q => ({ q, w: 1 }));
   }
 
   function sampleWeightedUnique(pool, n, mode) {
-    const items = pool.map(q => ({ q, w: weightForQuestion(q, mode) }));
+    const items = buildWeightedItems(pool, mode).slice();
     const picked = [];
     const N = Math.min(n, items.length);
 
@@ -1267,9 +1302,4 @@ function startQuiz() {
 
 </body>
 </html>
-
-
-
-
-
 
