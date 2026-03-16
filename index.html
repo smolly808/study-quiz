@@ -148,6 +148,7 @@
   <select id="sessionMode">
     <option value="normal" selected>通常</option>
     <option value="wrongOnly">間違えた問題だけ</option>
+    <option value="view">閲覧モード（答えを最初から表示・履歴に反映しない）</option>
   </select>
 
 <label>苦手優先</label>
@@ -192,13 +193,15 @@
   <div class="muted" id="statsSummary"></div>
 
   <div class="hint muted">
-    「間違えた問題だけ」モードは、通常で解いて不正解履歴（×）を作ると効きます。
+    「間違えた問題だけ」モードは、通常で解いて不正解履歴（×）を作ると効きます。<br>
+    「閲覧モード」は答えと解説を最初から表示し、学習履歴（正解数・不正解数・出題回数）には反映しません。
   </div>
 </div>
 
 <!-- 出題 -->
 <div class="card" id="quiz" style="display:none;">
   <div id="progress" class="muted"></div>
+  <div id="qStats" class="muted"></div>
   <div id="meta"></div>
   <h3 id="qText"></h3>
 
@@ -290,6 +293,18 @@
     if (!id) return false;
     const s = loadStats()[id];
     return !!(s && (s.ng || 0) > 0);
+  }
+
+  function isViewMode() {
+    return currentSessionMode === "view";
+  }
+
+  function getQuestionStats(q) {
+    const id = String(q.id ?? "");
+    const s = loadStats()[id] || { ok: 0, ng: 0, lastAt: 0 };
+    const ok = Number(s.ok || 0);
+    const ng = Number(s.ng || 0);
+    return { ok, total: ok + ng, ng };
   }
 
   function buildWeightedItems(pool, mode) {
@@ -478,6 +493,7 @@ function expandPickedWithGroups(picked, pool) {
     result: document.getElementById('result'),
 
     progress: document.getElementById('progress'),
+    qStats: document.getElementById('qStats'),
     meta: document.getElementById('meta'),
     qText: document.getElementById('qText'),
 
@@ -695,6 +711,7 @@ function renderWeakSectionsTable(rows) {
 
   let streak = 0;
   let bestStreak = 0;
+  let currentSessionMode = "normal";
 
   function show(el, on) { el.style.display = on ? "" : "none"; }
 
@@ -839,12 +856,13 @@ function refreshStatsSummary() {
   const sum = summarizeStatsForPool(pool);
   const rangeLabel = (els.rangeMode.value === "big") ? "大単元全体" : "この節のみ";
   const wrongOnly = (els.sessionMode.value === "wrongOnly") ? "（間違えた問題だけ）" : "";
+  const viewOnly = (els.sessionMode.value === "view") ? "（閲覧モード・履歴に反映しない）" : "";
 
   // ★全て通し表記を追加
   const allThroughLabel = (els.weakMode.value === "all") ? ` / 全て通し：全${pool.length}問` : "";
 
   els.statsSummary.textContent =
-    `範囲：${rangeLabel}${wrongOnly}${allThroughLabel} / 対象：${pool.length}問 / 学習済み：${sum.seen}問（正解${sum.ok}・不正解${sum.ng}） / 間違いのある問題：${sum.wrongQ}問`;
+    `範囲：${rangeLabel}${wrongOnly}${viewOnly}${allThroughLabel} / 対象：${pool.length}問 / 学習済み：${sum.seen}問（正解${sum.ok}・不正解${sum.ng}） / 間違いのある問題：${sum.wrongQ}問`;
 }
 
   // ★ここが今回の重要修正：確実に消える削除処理（data-qimg）
@@ -856,6 +874,7 @@ function refreshStatsSummary() {
     isAnswered = false;
     removeQuestionImage();
 
+    els.qStats.textContent = "";
     els.feedback.innerHTML = "";
     show(els.nextBtn, false);
     show(els.mcqArea, false);
@@ -929,7 +948,9 @@ function refreshStatsSummary() {
   function renderQuestion(q) {
     resetQuizUI();
 
+    const qst = getQuestionStats(q);
     els.progress.textContent = `問題 ${idx + 1} / ${quizList.length}`;
+    els.qStats.textContent = `これまでの正答数/出題数：${qst.ok}/${qst.total}`;
     els.meta.innerHTML =
       `<span class="pill">${escapeHtml(q.subject || "")}</span>` +
       `<span class="pill">${escapeHtml(q.unit_big || "")}</span>` +
@@ -940,6 +961,15 @@ function refreshStatsSummary() {
 
     // 画像表示（image_urlがあれば）
     insertQuestionImage(q);
+
+    if (isViewMode()) {
+      els.feedback.innerHTML =
+        `<div class="muted">閲覧モード：この問題は学習履歴に反映されません。</div>` +
+        `<div style="margin-top:10px;">${showAnswerBlock(q)}</div>`;
+      show(els.nextBtn, true);
+      els.nextBtn.onclick = next;
+      return;
+    }
 
     const type = String(q.type || "").toLowerCase();
 
@@ -1058,7 +1088,9 @@ function refreshStatsSummary() {
     results.push({ ok, q: q.question, unit_big: q.unit_big, unit_section: q.unit_section });
     if (ok) correct++;
 
-    recordAttempt(q, ok);
+    if (!isViewMode()) {
+      recordAttempt(q, ok);
+    }
     lockAfterAnswered(type);
 
     if (ok) {
@@ -1139,6 +1171,16 @@ function refreshStatsSummary() {
     show(els.quiz, false);
     show(els.result, true);
 
+    if (isViewMode()) {
+      els.scoreLine.innerHTML =
+        `<div><strong>${quizList.length}問</strong>を閲覧しました</div>` +
+        `<div class="muted">閲覧モードでは、正答率・出題回数・学習履歴には反映しません。</div>`;
+
+      els.review.innerHTML =
+        `<div class="muted">必要に応じて、同じ範囲を通常モードや苦手優先モードで解いてください。</div>`;
+      return;
+    }
+
     els.scoreLine.innerHTML =
       `<div><strong>${correct} / ${quizList.length}</strong>（正答率 ${(correct/quizList.length*100).toFixed(0)}%）</div>` +
       `<div class="muted">最高連続正解：${bestStreak}</div>`;
@@ -1157,6 +1199,7 @@ function startQuiz() {
   let pool = currentPool();
   const mode = els.weakMode.value;
   const sessionMode = els.sessionMode.value;
+  currentSessionMode = sessionMode;
 
   if (pool.length === 0) {
     alert("この条件の問題がありません。問題を追加するか、条件を変えてください。");
