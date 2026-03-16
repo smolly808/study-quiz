@@ -148,7 +148,7 @@
   <select id="sessionMode">
     <option value="normal" selected>通常</option>
     <option value="wrongOnly">間違えた問題だけ</option>
-    <option value="view">閲覧モード（答えを最初から表示・履歴に反映しない）</option>
+    <option value="browse">閲覧モード</option>
   </select>
 
 <label>苦手優先</label>
@@ -193,17 +193,17 @@
   <div class="muted" id="statsSummary"></div>
 
   <div class="hint muted">
-    「間違えた問題だけ」モードは、通常で解いて不正解履歴（×）を作ると効きます。<br>
-    「閲覧モード」は答えと解説を最初から表示し、全問をID昇順で通し出題します。閲覧モードの実施回数は別管理し、通常の学習履歴（正解数・不正解数・出題回数）には反映しません。
+    「間違えた問題だけ」モードは、通常で解いて不正解履歴（×）を作ると効きます。
   </div>
 </div>
 
 <!-- 出題 -->
 <div class="card" id="quiz" style="display:none;">
   <div id="progress" class="muted"></div>
-  <div id="qStats" class="muted"></div>
   <div id="meta"></div>
+  <div id="qHistory" class="muted" style="margin-top:4px;"></div>
   <h3 id="qText"></h3>
+  <div id="browseAnswerBlock" class="hint" style="display:none; margin-top:10px;"></div>
 
   <!-- 画像はここに挿入 -->
 
@@ -249,7 +249,8 @@
   // =========================
   // 学習履歴（端末内）
   // =========================
-  const STATS_KEY = "quiz_stats_v1"; // { [id]: {ok, ng, lastAt, viewOk, viewNg, viewLastAt} }
+  const STATS_KEY = "quiz_stats_v1"; // { [id]: {ok, ng, lastAt} }
+  const BROWSE_STATS_KEY = "quiz_browse_stats_v1"; // { [id]: {seen, lastAt} }
 
   function loadStats() {
     try { return JSON.parse(localStorage.getItem(STATS_KEY) || "{}"); }
@@ -258,39 +259,56 @@
   function saveStats(stats) {
     localStorage.setItem(STATS_KEY, JSON.stringify(stats));
   }
-  function getStatRow(stats, id) {
-    const cur = stats[id] || {};
-    return {
-      ok: Number(cur.ok || 0),
-      ng: Number(cur.ng || 0),
-      lastAt: Number(cur.lastAt || 0),
-      viewOk: Number(cur.viewOk || 0),
-      viewNg: Number(cur.viewNg || 0),
-      viewLastAt: Number(cur.viewLastAt || 0),
-    };
+
+  function loadBrowseStats() {
+    try { return JSON.parse(localStorage.getItem(BROWSE_STATS_KEY) || "{}"); }
+    catch { return {}; }
   }
+  function saveBrowseStats(stats) {
+    localStorage.setItem(BROWSE_STATS_KEY, JSON.stringify(stats));
+  }
+
+  function getQuestionStats(q) {
+    const id = String(q.id ?? "");
+    if (!id) return { ok: 0, ng: 0, total: 0, lastAt: 0 };
+    const s = loadStats()[id] || { ok: 0, ng: 0, lastAt: 0 };
+    const ok = Number(s.ok || 0);
+    const ng = Number(s.ng || 0);
+    return { ok, ng, total: ok + ng, lastAt: Number(s.lastAt || 0) };
+  }
+
+  function getQuestionBrowseStats(q) {
+    const id = String(q.id ?? "");
+    if (!id) return { seen: 0, lastAt: 0 };
+    const s = loadBrowseStats()[id] || { seen: 0, lastAt: 0 };
+    return { seen: Number(s.seen || 0), lastAt: Number(s.lastAt || 0) };
+  }
+
   function recordAttempt(q, ok) {
     const id = String(q.id ?? "");
     if (!id) return;
     const stats = loadStats();
-    const cur = getStatRow(stats, id);
+    const cur = stats[id] || { ok: 0, ng: 0, lastAt: 0 };
     if (ok) cur.ok += 1; else cur.ng += 1;
     cur.lastAt = Date.now();
     stats[id] = cur;
     saveStats(stats);
   }
-  function recordViewAttempt(q, ok) {
+
+  function recordBrowseAttempt(q) {
     const id = String(q.id ?? "");
     if (!id) return;
-    const stats = loadStats();
-    const cur = getStatRow(stats, id);
-    if (ok) cur.viewOk += 1; else cur.viewNg += 1;
-    cur.viewLastAt = Date.now();
+    const stats = loadBrowseStats();
+    const cur = stats[id] || { seen: 0, lastAt: 0 };
+    cur.seen += 1;
+    cur.lastAt = Date.now();
     stats[id] = cur;
-    saveStats(stats);
+    saveBrowseStats(stats);
   }
+
   function resetStats() {
     localStorage.removeItem(STATS_KEY);
+    localStorage.removeItem(BROWSE_STATS_KEY);
   }
 
   function summarizeStatsForPool(pool) {
@@ -302,9 +320,9 @@
       const s = stats[id];
       if (!s) continue;
       seen += 1;
-      ok += (s.ok || 0);
-      ng += (s.ng || 0);
-      if ((s.ng || 0) > 0) wrongQ += 1;
+      ok += Number(s.ok || 0);
+      ng += Number(s.ng || 0);
+      if (Number(s.ng || 0) > 0) wrongQ += 1;
     }
     return { seen, ok, ng, wrongQ };
   }
@@ -313,50 +331,13 @@
     const id = String(q.id ?? "");
     if (!id) return false;
     const s = loadStats()[id];
-    return !!(s && (s.ng || 0) > 0);
-  }
-
-  function isViewMode() {
-    return currentSessionMode === "view";
-  }
-
-  function getQuestionStats(q) {
-    const id = String(q.id ?? "");
-    const s = getStatRow(loadStats(), id);
-    return {
-      ok: s.ok,
-      total: s.ok + s.ng,
-      ng: s.ng,
-      viewTotal: s.viewOk + s.viewNg,
-      lastAt: s.lastAt,
-      viewLastAt: s.viewLastAt,
-    };
-  }
-
-  function getQuestionStatFromMap(stats, q) {
-    const id = String(q.id ?? "");
-    const s = getStatRow(stats, id);
-    return {
-      ok: s.ok,
-      ng: s.ng,
-      total: s.ok + s.ng,
-      viewOk: s.viewOk,
-      viewNg: s.viewNg,
-      viewTotal: s.viewOk + s.viewNg,
-      lastAt: s.lastAt,
-      viewLastAt: s.viewLastAt,
-    };
-  }
-
-  function daysSince(ts) {
-    if (!ts) return Infinity;
-    return (Date.now() - ts) / 86400000;
+    return !!(s && Number(s.ng || 0) > 0);
   }
 
   function buildWeightedItems(pool, mode) {
     const stats = loadStats();
 
-    if (mode === "off") {
+    if (mode === "off" || mode === "all") {
       return pool.map(q => ({ q, w: 1 }));
     }
 
@@ -370,7 +351,7 @@
         const total = ok + ng;
         const wrongRate = total > 0 ? (ng / total) : 0;
 
-        const recentHours = (Date.now() - (s.lastAt || 0)) / 36e5;
+        const recentHours = (Date.now() - Number(s.lastAt || 0)) / 36e5;
         const recentBoost = (ng > 0 && recentHours <= 24) ? 0.4 : 0;
 
         const w = 1 + 3.0 * wrongRate + 1.3 * Math.min(5, ng) / 5 + recentBoost;
@@ -378,37 +359,29 @@
       });
     }
 
-    if (mode === "mid") {
-      const rows = pool.map(q => {
-        const id = String(q.id ?? "");
-        const s = stats[id] || { ok: 0, ng: 0, lastAt: 0 };
+    const rows = pool.map(q => {
+      const id = String(q.id ?? "");
+      const s = stats[id] || { ok: 0, ng: 0, lastAt: 0 };
+      const ok = Number(s.ok || 0);
+      const ng = Number(s.ng || 0);
+      const total = ok + ng;
+      const acc = total > 0 ? (ok / total) : -1;
+      return { q, ok, ng, total, acc };
+    });
 
-        const ok = Number(s.ok || 0);
-        const ng = Number(s.ng || 0);
-        const total = ok + ng;
-        const acc = total > 0 ? (ok / total) : -1; // 未出題は最優先側
+    const maxTotal = rows.reduce((m, x) => Math.max(m, x.total), 0);
+    const threshold = maxTotal / 2;
 
-        return { q, ok, ng, total, acc };
-      });
-
-      const maxTotal = rows.reduce((m, x) => Math.max(m, x.total), 0);
-      const threshold = maxTotal / 2;
-
-      return rows.map(x => {
-        const underHalf = x.total <= threshold ? 1 : 0;
-        const accPriority = (x.acc < 0) ? 1 : (1 - x.acc);
-        const fewPriority = 1 / (x.total + 1);
-
-        const w =
-          1000 * underHalf +   // ① 最多出題数の半分以下を最優先
-          100 * accPriority +  // ② 正答率が低いものを優先
-          10 * fewPriority;    // ③ 正答率が同じなら出題数が少ないものを優先
-
-        return { q: x.q, w };
-      });
-    }
-
-    return pool.map(q => ({ q, w: 1 }));
+    return rows.map(x => {
+      const underHalf = x.total <= threshold ? 1 : 0;
+      const accPriority = (x.acc < 0) ? 1 : (1 - x.acc);
+      const fewPriority = 1 / (x.total + 1);
+      const w =
+        1000 * underHalf +
+        100 * accPriority +
+        10 * fewPriority;
+      return { q: x.q, w: Math.max(0.2, w) };
+    });
   }
 
   function sampleWeightedUnique(pool, n, mode) {
@@ -539,9 +512,10 @@ function expandPickedWithGroups(picked, pool) {
     result: document.getElementById('result'),
 
     progress: document.getElementById('progress'),
-    qStats: document.getElementById('qStats'),
     meta: document.getElementById('meta'),
+    qHistory: document.getElementById('qHistory'),
     qText: document.getElementById('qText'),
+    browseAnswerBlock: document.getElementById('browseAnswerBlock'),
 
     mcqArea: document.getElementById('mcqArea'),
 
@@ -757,7 +731,6 @@ function renderWeakSectionsTable(rows) {
 
   let streak = 0;
   let bestStreak = 0;
-  let currentSessionMode = "normal";
 
   function show(el, on) { el.style.display = on ? "" : "none"; }
 
@@ -819,44 +792,79 @@ function renderWeakSectionsTable(rows) {
       .map(x => x.sec);
   }
 
+  function isBrowseMode() {
+    return els.sessionMode.value === "browse";
+  }
 
-  function getSectionQuestions(unitBig, unitSection) {
+  function getEffectiveWeakMode() {
+    return isBrowseMode() ? "all" : els.weakMode.value;
+  }
+
+  function getQuestionsForSection(unitBig, unitSection) {
     return allForSubject.filter(q =>
       String(q.subject || "").toLowerCase() === els.subject.value &&
-      String(q.unit_big || "").trim() === unitBig &&
-      String(q.unit_section || "").trim() === unitSection
+      String(q.unit_big || "").trim() === String(unitBig || "").trim() &&
+      String(q.unit_section || "").trim() === String(unitSection || "").trim()
     );
   }
 
-  function getSectionStagePrefix(unitBig, unitSection) {
-    const qs = getSectionQuestions(unitBig, unitSection);
-    if (!qs.length) return "";
+  function getSectionStatusLabel(sectionQuestions) {
+    if (!sectionQuestions.length) return "";
 
     const stats = loadStats();
-    const rows = qs.map(q => getQuestionStatFromMap(stats, q));
-    const allViewTwice = rows.every(r => r.viewTotal >= 2);
-    const allOk3 = rows.every(r => r.ok >= 3);
-    const allOk6 = rows.every(r => r.ok >= 6);
-    const sectionLastAt = rows.reduce((m, r) => Math.max(m, r.lastAt || 0), 0);
-    const reviewDue = allOk6 && sectionLastAt > 0 && daysSince(sectionLastAt) >= 7;
+    const browse = loadBrowseStats();
+    const now = Date.now();
+    const sevenDays = 7 * 24 * 60 * 60 * 1000;
 
-    if (reviewDue) return "！復習時期！ ";
-    if (allOk6) return "🐔㊗ ";
-    if (allOk3) return "🐣次はランダムに挑戦 ";
-    if (allViewTwice) return "🥚次は全て通し ";
+    const allBrowse2 = sectionQuestions.every(q => {
+      const s = browse[String(q.id ?? "")] || { seen: 0 };
+      return Number(s.seen || 0) >= 2;
+    });
+
+    const allOk3 = sectionQuestions.every(q => {
+      const s = stats[String(q.id ?? "")] || { ok: 0 };
+      return Number(s.ok || 0) >= 3;
+    });
+
+    const allOk6 = sectionQuestions.every(q => {
+      const s = stats[String(q.id ?? "")] || { ok: 0 };
+      return Number(s.ok || 0) >= 6;
+    });
+
+    const reviewDue = allOk6 && sectionQuestions.every(q => {
+      const s = stats[String(q.id ?? "")] || { lastAt: 0 };
+      const lastAt = Number(s.lastAt || 0);
+      return lastAt > 0 && (now - lastAt >= sevenDays);
+    });
+
+    if (reviewDue) return "！復習時期！";
+    if (allOk6) return "🐔㊗";
+    if (allOk3) return "🐣次はランダムに挑戦";
+    if (allBrowse2) return "🥚次は全て通し";
     return "";
   }
 
-  function renderSectionOptions(unitBig, selectedSection = "") {
+  function buildSectionOptions(unitBig, selectedValue = "") {
     const sections = uniqSortSections(allForSubject, unitBig);
-    els.unitSection.innerHTML = sections.length
-      ? sections.map(s => {
-          const prefix = getSectionStagePrefix(unitBig, s);
-          const label = `${prefix}${s}`;
-          const selected = s === selectedSection ? ' selected' : '';
-          return `<option value="${escapeHtml(s)}"${selected}>${escapeHtml(label)}</option>`;
-        }).join("")
-      : `<option value="">（節なし）</option>`;
+    if (!sections.length) {
+      return {
+        html: `<option value="">（節なし）</option>`,
+        value: ""
+      };
+    }
+
+    const html = sections.map(sec => {
+      const qs = getQuestionsForSection(unitBig, sec);
+      const prefix = getSectionStatusLabel(qs);
+      const label = prefix ? `${prefix} ${sec}` : sec;
+      const selected = (sec === selectedValue) ? " selected" : "";
+      return `<option value="${escapeHtml(sec)}"${selected}>${escapeHtml(label)}</option>`;
+    }).join("");
+
+    return {
+      html,
+      value: sections.includes(selectedValue) ? selectedValue : sections[0]
+    };
   }
 
   async function loadCatalog() {
@@ -872,42 +880,51 @@ function renderWeakSectionsTable(rows) {
       : `<option value="">（問題なし）</option>`;
 
     const firstBig = unitBigs[0] || "";
-    renderSectionOptions(firstBig);
+    const secBuilt = buildSectionOptions(firstBig, "");
+    els.unitSection.innerHTML = secBuilt.html;
+    if (secBuilt.value) els.unitSection.value = secBuilt.value;
 
     els.status.textContent = `読み込み完了：${json.count}件（科目=${subject}）`;
     refreshStatsSummary();
   }
 
 let lastNumQValue = null;
+let lastWeakModeValue = null;
 
 function syncAllThroughUI() {
   const pool = currentPool();
-  const mode = els.weakMode.value;
-  const isView = els.sessionMode.value === "view";
-  const isAll = (mode === "all") || isView;
+  const effectiveMode = getEffectiveWeakMode();
+  const isAll = (effectiveMode === "all");
+
+  if (isBrowseMode()) {
+    if (lastWeakModeValue === null) lastWeakModeValue = els.weakMode.value;
+    els.weakMode.value = "all";
+    els.weakMode.disabled = true;
+  } else {
+    els.weakMode.disabled = false;
+    if (lastWeakModeValue !== null) {
+      lastWeakModeValue = null;
+    }
+  }
 
   if (isAll) {
     if (lastNumQValue === null) lastNumQValue = els.numQ.value;
-
     els.numQ.disabled = true;
-    els.weakMode.disabled = isView;
     els.numQBadge.style.display = "";
-    els.numQHint.textContent = isView
+    els.numQHint.textContent = isBrowseMode()
       ? `閲覧モードでは全問（${pool.length}問）をID昇順で通し出題します。`
       : `全問（${pool.length}問）をID昇順で通し出題します。`;
   } else {
     els.numQ.disabled = false;
-    els.weakMode.disabled = false;
     els.numQBadge.style.display = "none";
     els.numQHint.textContent = "";
-
     if (lastNumQValue !== null) {
       els.numQ.value = lastNumQValue;
       lastNumQValue = null;
     }
   }
 }
-  
+
   function currentPool() {
     const subject = els.subject.value;
     const unitBig = els.unitBig.value;
@@ -928,26 +945,21 @@ function syncAllThroughUI() {
 
 function refreshStatsSummary() {
   const pool = currentPool();
+  syncAllThroughUI();
+
   if (pool.length === 0) { 
-    els.statsSummary.textContent = ""; 
-    // poolが空でもUIは戻しておく
-    syncAllThroughUI();
+    els.statsSummary.textContent = "";
     return; 
   }
 
-  // ★ここでUI同期（全て通し時に numQ を無効化＆全問表示）
-  syncAllThroughUI();
-
   const sum = summarizeStatsForPool(pool);
   const rangeLabel = (els.rangeMode.value === "big") ? "大単元全体" : "この節のみ";
+  const browseLabel = isBrowseMode() ? "（閲覧モード）" : "";
   const wrongOnly = (els.sessionMode.value === "wrongOnly") ? "（間違えた問題だけ）" : "";
-  const viewOnly = (els.sessionMode.value === "view") ? "（閲覧モード・通常履歴に反映しない）" : "";
-
-  const isForcedAll = (els.weakMode.value === "all") || (els.sessionMode.value === "view");
-  const allThroughLabel = isForcedAll ? ` / 全て通し：全${pool.length}問` : "";
+  const allThroughLabel = (getEffectiveWeakMode() === "all") ? ` / 全て通し：全${pool.length}問` : "";
 
   els.statsSummary.textContent =
-    `範囲：${rangeLabel}${wrongOnly}${viewOnly}${allThroughLabel} / 対象：${pool.length}問 / 学習済み：${sum.seen}問（正解${sum.ok}・不正解${sum.ng}） / 間違いのある問題：${sum.wrongQ}問`;
+    `範囲：${rangeLabel}${browseLabel}${wrongOnly}${allThroughLabel} / 対象：${pool.length}問 / 学習済み：${sum.seen}問（正解${sum.ok}・不正解${sum.ng}） / 間違いのある問題：${sum.wrongQ}問`;
 }
 
   // ★ここが今回の重要修正：確実に消える削除処理（data-qimg）
@@ -959,8 +971,10 @@ function refreshStatsSummary() {
     isAnswered = false;
     removeQuestionImage();
 
-    els.qStats.textContent = "";
     els.feedback.innerHTML = "";
+    els.qHistory.textContent = "";
+    els.browseAnswerBlock.innerHTML = "";
+    show(els.browseAnswerBlock, false);
     show(els.nextBtn, false);
     show(els.mcqArea, false);
     show(els.kwArea, false);
@@ -976,6 +990,7 @@ function refreshStatsSummary() {
     els.selfReveal.innerHTML = "";
     show(els.selfReveal, false);
     show(els.selfMark, false);
+    els.selfRevealBtn.style.display = "";
     els.selfRevealBtn.disabled = false;
     els.selfRevealBtn.textContent = "模範解答・解説を見る";
     els.selfOkBtn.disabled = false;
@@ -1033,28 +1048,28 @@ function refreshStatsSummary() {
   function renderQuestion(q) {
     resetQuizUI();
 
-    const qst = getQuestionStats(q);
-    const viewMode = isViewMode();
+    const stats = getQuestionStats(q);
+    const browseStats = getQuestionBrowseStats(q);
+
     els.progress.textContent = `問題 ${idx + 1} / ${quizList.length}`;
-    els.qStats.textContent = viewMode
-      ? `これまでの正答数/出題数：${qst.ok}/${qst.total} / 閲覧モード実施回数：${qst.viewTotal}`
-      : `これまでの正答数/出題数：${qst.ok}/${qst.total}`;
     els.meta.innerHTML =
       `<span class="pill">${escapeHtml(q.subject || "")}</span>` +
       `<span class="pill">${escapeHtml(q.unit_big || "")}</span>` +
       `<span class="pill">${escapeHtml(q.unit_section || "")}</span>` +
       (q.tags ? `<span class="pill">${escapeHtml(q.tags)}</span>` : "");
 
+    els.qHistory.textContent =
+      `これまでの正答数/出題数：${stats.ok}/${stats.total}` +
+      `　閲覧モード実施回数：${browseStats.seen}`;
+
     els.qText.textContent = String(q.question || "");
 
-    // 画像表示（image_urlがあれば）
-    insertQuestionImage(q);
-
-    if (viewMode) {
-      els.feedback.innerHTML =
-        `<div class="muted">閲覧モード：答え・解説を表示したまま解答できます。採点結果は今回の画面内だけで集計し、学習履歴には反映しません。</div>` +
-        `<div style="margin-top:10px;">${showAnswerBlock(q)}</div>`;
+    if (isBrowseMode()) {
+      els.browseAnswerBlock.innerHTML = showAnswerBlock(q);
+      show(els.browseAnswerBlock, true);
     }
+
+    insertQuestionImage(q);
 
     const type = String(q.type || "").toLowerCase();
 
@@ -1095,13 +1110,11 @@ function refreshStatsSummary() {
     } else {
       show(els.selfArea, true);
 
-      if (viewMode) {
-        els.selfReveal.innerHTML = showAnswerBlock(q);
-        show(els.selfReveal, true);
+      if (isBrowseMode()) {
+        els.selfRevealBtn.style.display = "none";
         show(els.selfMark, true);
-        els.selfRevealBtn.disabled = true;
-        els.selfRevealBtn.textContent = "表示中";
       } else {
+        els.selfRevealBtn.style.display = "";
         els.selfRevealBtn.onclick = () => {
           if (isAnswered) return;
           revealSelf(q);
@@ -1181,11 +1194,12 @@ function refreshStatsSummary() {
     results.push({ ok, q: q.question, unit_big: q.unit_big, unit_section: q.unit_section });
     if (ok) correct++;
 
-    if (isViewMode()) {
-      recordViewAttempt(q, ok);
+    if (isBrowseMode()) {
+      recordBrowseAttempt(q);
     } else {
       recordAttempt(q, ok);
     }
+
     lockAfterAnswered(type);
 
     if (ok) {
@@ -1266,29 +1280,15 @@ function refreshStatsSummary() {
     show(els.quiz, false);
     show(els.result, true);
 
-    if (isViewMode()) {
-      const rate = quizList.length ? (correct / quizList.length * 100).toFixed(0) : "0";
-      const wrongs = results.filter(r => !r.ok);
-
-      els.scoreLine.innerHTML =
-        `<div><strong>${correct} / ${quizList.length}</strong>（正答率 ${rate}%）</div>` +
-        `<div class="muted">閲覧モードの採点結果です。正答率・出題回数・学習履歴には反映しません。</div>`;
-
-      if (wrongs.length === 0) {
-        els.review.innerHTML = `<div class="ok">🎉 全問正解！</div>`;
-      } else {
-        els.review.innerHTML =
-          `<div class="ng">間違い：${wrongs.length}問</div>` +
-          `<ol>${wrongs.map(w => `<li>${escapeHtml(w.unit_big||"")} / ${escapeHtml(w.unit_section||"")}：${escapeHtml(w.q||"")}</li>`).join("")}</ol>`;
-      }
-      renderSectionOptions(els.unitBig.value, els.unitSection.value);
-      refreshStatsSummary();
-      return;
-    }
+    const rate = quizList.length ? (correct / quizList.length * 100).toFixed(0) : "0";
+    const browseNote = isBrowseMode()
+      ? `<div class="muted">※閲覧モードのため、この結果は学習履歴の正答数・出題回数には加算していません。</div>`
+      : "";
 
     els.scoreLine.innerHTML =
-      `<div><strong>${correct} / ${quizList.length}</strong>（正答率 ${(correct/quizList.length*100).toFixed(0)}%）</div>` +
-      `<div class="muted">最高連続正解：${bestStreak}</div>`;
+      `<div><strong>${correct} / ${quizList.length}</strong>（正答率 ${rate}%）</div>` +
+      `<div class="muted">最高連続正解：${bestStreak}</div>` +
+      browseNote;
 
     const wrongs = results.filter(r => !r.ok);
     if (wrongs.length === 0) {
@@ -1298,22 +1298,18 @@ function refreshStatsSummary() {
         `<div class="ng">間違い：${wrongs.length}問</div>` +
         `<ol>${wrongs.map(w => `<li>${escapeHtml(w.unit_big||"")} / ${escapeHtml(w.unit_section||"")}：${escapeHtml(w.q||"")}</li>`).join("")}</ol>`;
     }
-    renderSectionOptions(els.unitBig.value, els.unitSection.value);
-    refreshStatsSummary();
   }
 
 function startQuiz() {
   let pool = currentPool();
-  const mode = els.weakMode.value;
+  const mode = getEffectiveWeakMode();
   const sessionMode = els.sessionMode.value;
-  currentSessionMode = sessionMode;
 
   if (pool.length === 0) {
     alert("この条件の問題がありません。問題を追加するか、条件を変えてください。");
     return;
   }
 
-  // 「間違えた問題だけ」フィルタ（全て通しでも適用）
   if (sessionMode === "wrongOnly") {
     const wrongPool = pool.filter(isWrongQuestion);
     if (wrongPool.length === 0) {
@@ -1323,9 +1319,7 @@ function startQuiz() {
     pool = wrongPool;
   }
 
-  // ★ 全て通し（ID昇順で、範囲内の全問を出題）
-  if (mode === "all" || sessionMode === "view") {
-    // id を数値優先で昇順、同値や非数値は文字列比較で安定化
+  if (mode === "all") {
     const sorted = [...pool].sort((a, b) => {
       const aRaw = (a.id ?? "").toString().trim();
       const bRaw = (b.id ?? "").toString().trim();
@@ -1339,14 +1333,10 @@ function startQuiz() {
       if (!aIsNum && bIsNum) return 1;
       return aRaw.localeCompare(bRaw, "ja");
     });
-
-    quizList = sorted;              // ← 全問
+    quizList = sorted;
   } else {
-    // 従来どおり（ランダム／苦手優先）→ 起点をn問選んでからグループ展開
     const n = Math.max(1, Math.min(50, Number(els.numQ.value || 10)));
     const picked = sampleWeightedUnique(pool, n, mode);
-
-    // ★ここが追加：group_id が当たったら group_order 1→最後まで連続で出す
     quizList = expandPickedWithGroups(picked, pool);
   }
 
@@ -1364,12 +1354,15 @@ function startQuiz() {
 }
 
   // イベント
+
   els.reloadBtn.onclick = () => loadCatalog().catch(e => els.status.textContent = "読込失敗：" + e.message);
   els.subject.onchange = () => loadCatalog().catch(e => els.status.textContent = "読込失敗：" + e.message);
 
   els.unitBig.onchange = () => {
     const big = els.unitBig.value;
-    renderSectionOptions(big);
+    const built = buildSectionOptions(big, els.unitSection.value);
+    els.unitSection.innerHTML = built.html;
+    if (built.value) els.unitSection.value = built.value;
     refreshStatsSummary();
   };
 
@@ -1377,7 +1370,10 @@ function startQuiz() {
   els.typeFilter.onchange = refreshStatsSummary;
   els.weakMode.onchange = refreshStatsSummary;
   els.rangeMode.onchange = refreshStatsSummary;
-  els.sessionMode.onchange = refreshStatsSummary;
+  els.sessionMode.onchange = () => {
+    syncAllThroughUI();
+    refreshStatsSummary();
+  };
 
   els.startBtn.onclick = startQuiz;
 
@@ -1386,13 +1382,18 @@ function startQuiz() {
     show(els.result,false);
     show(els.quiz,false);
     show(els.setup,true);
-    renderSectionOptions(els.unitBig.value, els.unitSection.value);
+    const built = buildSectionOptions(els.unitBig.value, els.unitSection.value);
+    els.unitSection.innerHTML = built.html;
+    if (built.value) els.unitSection.value = built.value;
     refreshStatsSummary();
   };
 
   els.resetStatsBtn.onclick = () => {
-    if (!confirm("この端末の学習履歴をすべてリセットします。よろしいですか？")) return;
+    if (!confirm("この端末の学習履歴・閲覧モード履歴をすべてリセットします。よろしいですか？")) return;
     resetStats();
+    const built = buildSectionOptions(els.unitBig.value, els.unitSection.value);
+    els.unitSection.innerHTML = built.html;
+    if (built.value) els.unitSection.value = built.value;
     refreshStatsSummary();
     alert("リセットしました。");
   };
