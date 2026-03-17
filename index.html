@@ -156,7 +156,7 @@
   <option value="off">OFF（完全ランダム）</option>
   <option value="mid">ON（標準）</option>
   <option value="strong">ON（強め）</option>
-  <option value="all" selected>全て通し（ID昇順）</option>
+  <option value="all" selected>全て通し（シート順）</option>
 </select>
 
   <label>演出</label>
@@ -891,33 +891,25 @@ function renderWeakSectionsTable(rows) {
 let lastNumQValue = null;
 let lastWeakModeValue = null;
 
+let lastNumQValue = null;
+
 function syncAllThroughUI() {
   const pool = currentPool();
-  const effectiveMode = getEffectiveWeakMode();
-  const isAll = (effectiveMode === "all");
+  const mode = els.weakMode.value;
 
-  if (isBrowseMode()) {
-    if (lastWeakModeValue === null) lastWeakModeValue = els.weakMode.value;
-    els.weakMode.value = "all";
-    els.weakMode.disabled = true;
-  } else {
-    els.weakMode.disabled = false;
-    if (lastWeakModeValue !== null) {
-      lastWeakModeValue = null;
-    }
-  }
+  const isAll = (mode === "all");
 
   if (isAll) {
     if (lastNumQValue === null) lastNumQValue = els.numQ.value;
+
     els.numQ.disabled = true;
     els.numQBadge.style.display = "";
-    els.numQHint.textContent = isBrowseMode()
-      ? `閲覧モードでは全問（${pool.length}問）をID昇順で通し出題します。`
-      : `全問（${pool.length}問）をID昇順で通し出題します。`;
+    els.numQHint.textContent = `全問（${pool.length}問）をスプレッドシート順で通し出題します。`;
   } else {
     els.numQ.disabled = false;
     els.numQBadge.style.display = "none";
     els.numQHint.textContent = "";
+
     if (lastNumQValue !== null) {
       els.numQ.value = lastNumQValue;
       lastNumQValue = null;
@@ -1302,7 +1294,7 @@ function refreshStatsSummary() {
 
 function startQuiz() {
   let pool = currentPool();
-  const mode = getEffectiveWeakMode();
+  const mode = els.weakMode.value;
   const sessionMode = els.sessionMode.value;
 
   if (pool.length === 0) {
@@ -1310,6 +1302,7 @@ function startQuiz() {
     return;
   }
 
+  // 「間違えた問題だけ」フィルタ
   if (sessionMode === "wrongOnly") {
     const wrongPool = pool.filter(isWrongQuestion);
     if (wrongPool.length === 0) {
@@ -1319,25 +1312,18 @@ function startQuiz() {
     pool = wrongPool;
   }
 
+  // ★ 全て通し（スプレッドシートの上→下の順）
   if (mode === "all") {
-    const sorted = [...pool].sort((a, b) => {
-      const aRaw = (a.id ?? "").toString().trim();
-      const bRaw = (b.id ?? "").toString().trim();
-      const aNum = Number(aRaw);
-      const bNum = Number(bRaw);
-      const aIsNum = Number.isFinite(aNum);
-      const bIsNum = Number.isFinite(bNum);
-
-      if (aIsNum && bIsNum) return aNum - bNum;
-      if (aIsNum && !bIsNum) return -1;
-      if (!aIsNum && bIsNum) return 1;
-      return aRaw.localeCompare(bRaw, "ja");
-    });
-    quizList = sorted;
+    quizList = [...pool];
   } else {
     const n = Math.max(1, Math.min(50, Number(els.numQ.value || 10)));
     const picked = sampleWeightedUnique(pool, n, mode);
+
+    // group_id/group_order を使っている版ならこれ
     quizList = expandPickedWithGroups(picked, pool);
+
+    // もし group_id 対応を入れていない版なら、上の1行の代わりにこれ
+    // quizList = picked;
   }
 
   idx = 0;
